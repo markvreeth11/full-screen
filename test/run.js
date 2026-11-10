@@ -399,6 +399,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await vp.$$('.item')).length, 3);
   assert.equal(await vp.locator('#items input, #items textarea, #items button:has-text("Delete"), #items button:has-text("Hide")').count(), 0, 'no editing controls');
   assert.equal(await vp.locator('a[href="/admin"]').count(), 0, 'no link to admin');
+  assert.equal(await vp.locator('a[href="/"], a[href="/admin"], .iconbtn').count(), 0, 'no upload button (or any navigation) on the volunteer page');
   await vp.screenshot({ path: `${OUT}/view.png` });
   assert.equal(await vp.locator('.caret, .menu, .split').count(), 0, 'no dropdown arrows anywhere');
   assert.deepEqual(await vp.locator('.item .actions button').allTextContents(), ['Download', 'Download', 'Download']);

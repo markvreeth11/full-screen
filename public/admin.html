@@ -148,15 +148,18 @@ chipInput.addEventListener('keydown',e=>{
   else if(e.key==='Enter')e.preventDefault();
 });
 chipInput.addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\s,;]/.test(t.trim())){e.preventDefault();addMails(t)}});
-chipInput.addEventListener('blur',()=>{if(chipInput.value.trim()&&addMails(chipInput.value))chipInput.value=''});
+// (No commit-on-blur: turning text into a tag can reflow the field and move the Save button mid-click, losing the click.
+//  Save / Send test email call commitMails() themselves, so a half-typed address is never lost.)
 $('#chips').addEventListener('click',e=>{if(e.target===$('#chips'))chipInput.focus()});
 
+let savedTimer;
+// Shows a message next to Save for 3 seconds. A newer message cancels the older timer so it can't wipe it early.
+const flashSaved=t=>{const el=$('#saved');el.textContent=t;clearTimeout(savedTimer);savedTimer=setTimeout(()=>el.textContent='',3000)};
 $('#save').onclick=async()=>{
   if(!commitMails())return;
   const b={};for(const k of KEYS)b[k]=$('#'+k).value;
   b.uploadsOpen=$('#uploadsOpen').checked;
-  try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
-  setTimeout(()=>$('#saved').textContent='',3000)};
+  try{await api('settings-put',b);flashSaved('Saved ✓');loadSettings();loadItems()}catch(e){flashSaved(e.message)}};
 $('#testmail').onclick=async()=>{if(!commitMails())return;const st=$('#mailst');st.className='small mute';st.style.color='';st.style.whiteSpace='';st.textContent='Sending…';
   try{const r=await api('notify-test',{email:$('#notifyEmail').value,emailSubject:$('#emailSubject').value,emailIntro:$('#emailIntro').value});st.className='small ok-text';st.style.whiteSpace='pre-line';st.textContent='Test email sent to '+(r.sent||[]).join(', ')+' ✓ — check each inbox (and spam). Click "Save settings" to keep your changes.'}
   catch(e){st.className='small';st.style.color='var(--danger)';st.style.whiteSpace='pre-line';st.textContent='Could not send: '+e.message}};
