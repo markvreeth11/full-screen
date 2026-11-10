@@ -53,6 +53,7 @@ module.exports = c.wrap(async (req, res) => {
       sort_order: ((last && last[0] && last[0].sort_order) || 0) + 1, version: Date.now(),
     });
     if (error) throw error;
+    if (t.kind === 'video') await c.dispatchConvert();
     return res.json({ id: t.id });
   }
   res.status(400).json({ error: 'Bad request' });

@@ -93,6 +93,44 @@ async function removeObjects(bucket, paths) {
   if (paths.length) await sb().storage.from(bucket).remove(paths);
 }
 
+// ---------- video conversion (done by .github/workflows/convert-videos.yml) ----------
+// Converted file lives next to the upload: <week>/<id>-1080p5994.mp4 ; a failure leaves <week>/<id>.convert-error.txt
+// (scripts/convert-videos.js uses the same names).
+const convName = (it) => `${it.id}-1080p5994.mp4`;
+const errName = (it) => `${it.id}.convert-error.txt`;
+const convPath = (it) => `${it.week_key}/${convName(it)}`;
+const errPath = (it) => `${it.week_key}/${errName(it)}`;
+async function weekNames(week) {
+  const { data } = await sb().storage.from('media').list(week, { limit: 1000 });
+  return new Set((data || []).map((f) => f.name));
+}
+const convState = (it, names) => (names.has(convName(it)) ? 'ready' : names.has(errName(it)) ? 'failed' : 'working');
+
+// Ask GitHub Actions to convert right away. Optional: without GH_DISPATCH_TOKEN the hourly schedule picks it up.
+async function dispatchConvert() {
+  const tok = process.env.GH_DISPATCH_TOKEN;
+  const repo = process.env.GITHUB_REPO ||
+    (process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}` : '');
+  if (!tok || !repo) return false;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/convert-videos.yml/dispatches`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tok}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'weekly-uploads' },
+      body: JSON.stringify({ ref: process.env.CONVERT_REF || 'main' }),
+    });
+    if (!r.ok) console.error('convert dispatch failed', r.status, await r.text());
+    return r.ok;
+  } catch (e) { console.error('convert dispatch error', e.message); return false; }
+}
+// The background is baked into converted videos, so a new background means converting this week's videos again.
+async function resetConversions(week) {
+  const { data } = await sb().from('items').select('id,week_key').eq('week_key', week).eq('kind', 'video');
+  const paths = (data || []).flatMap((it) => [convPath(it), errPath(it)]);
+  if (!paths.length) return;
+  await removeObjects('media', paths);
+  await dispatchConvert();
+}
+
 // Delete everything for weeks that are older than the retention window.
 async function purgeOld(s) {
   const keep = Math.max(0, Math.round(+s.keepPastWeeks || 0));
@@ -119,5 +157,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, DEFAULTS, MAX_IMAGE_MB, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld,
+  wrap, exists, removeObjects, purgeOld, convPath, errPath, weekNames, convState, dispatchConvert, resetConversions,
 };

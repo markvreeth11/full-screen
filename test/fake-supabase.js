@@ -51,6 +51,8 @@ const storage = {
       }
       return { data: [...names.values()].slice(0, o.limit || 100), error: null };
     },
+    download: async (p) => (buckets[b].has(p) ? { data: new Blob([buckets[b].get(p).data]), error: null } : { data: null, error: { message: 'not found' } }),
+    upload: async (p, body, o = {}) => { buckets[b].set(p, { data: Buffer.from(body), type: o.contentType }); return { data: { path: p }, error: null }; },
     remove: async (paths) => { paths.forEach((p) => buckets[b].delete(p)); return { error: null }; },
   }),
 };
