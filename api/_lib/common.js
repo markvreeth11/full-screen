@@ -17,7 +17,7 @@ const DEFAULTS = {
   transition: 'fade',
   uploadCode: '',
   viewerPassword: '',    // password for the read-only volunteer page (/view); blank = page disabled
-  emailSubject: 'New {type} uploaded: {title}', // placeholders: {type} {title} {file} {sunday} {description}
+  emailSubject: 'New {TYPE} uploaded: {TITLE}', // placeholders: {TYPE} {TITLE} {FILE} {SUNDAY} {DESCRIPTION}
   emailIntro: '',        // optional message shown at the top of the alert email
   notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)
   uploadsOpen: true,
@@ -176,6 +176,10 @@ const siteUrl = (req) => {
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   return host ? `${req.headers['x-forwarded-proto'] || 'https'}://${host}` : '';
 };
+// Known placeholders are stored/shown in CAPITALS ({TITLE}); typing {title} also works.
+const PLACEHOLDER_RE = /\{(type|title|file|sunday|description)\}/gi;
+const upperPlaceholders = (str) => String(str || '').replace(PLACEHOLDER_RE, (m, k) => `{${k.toUpperCase()}}`);
+
 // {placeholders} usable in the email subject and intro message. Unknown ones are left as typed.
 const fill = (str, vars) => String(str || '').replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
 
@@ -235,5 +239,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, inUploadOrder, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld, emailDiagnostics, buildNotification, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
+  wrap, exists, removeObjects, purgeOld, upperPlaceholders, emailDiagnostics, buildNotification, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };

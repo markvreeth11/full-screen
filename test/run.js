@@ -182,9 +182,10 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\n'), 'intro in plain text too');
   const pv = await aapi2('notify-test', { email: 'you@example.com', emailSubject: 'Preview {title}', emailIntro: 'unsaved intro' });
   assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
-  assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {Title} ({type}) for {sunday} {nope}', 'preview did not save');
+  assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {TITLE} ({TYPE}) for {SUNDAY} {nope}', 'preview did not save; placeholders stored in CAPITALS (unknown ones untouched)');
+  assert.equal((await aapi2('settings-get')).body.emailIntro, 'Hi team,\n<b>New</b> for {SUNDAY}: {FILE}');
   await aapi2('settings-put', { emailSubject: '   ', emailIntro: '' });
-  assert.equal((await aapi2('settings-get')).body.emailSubject, 'New {type} uploaded: {title}', 'blank subject resets to default');
+  assert.equal((await aapi2('settings-get')).body.emailSubject, 'New {TYPE} uploaded: {TITLE}', 'blank subject resets to the (uppercase) default');
   console.log('✓ email subject + intro are editable with placeholders; test previews unsaved edits');
   for (const it of fake.tables.items.filter((i) => i.title === 'Youth Night' && i.original_name === 'pic.png')) await aapi2('delete', { id: it.id });
   await aapi2('settings-put', { notifyEmail: 'fail@example.com' });

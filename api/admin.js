@@ -94,8 +94,8 @@ module.exports = c.wrap(async (req, res) => {
       if ('uploadCode' in b) s.uploadCode = c.clip(b.uploadCode, 100);
       if ('uploadsOpen' in b) s.uploadsOpen = !!b.uploadsOpen;
       if ('viewerPassword' in b) s.viewerPassword = c.clip(b.viewerPassword, 100);
-      if ('emailSubject' in b) s.emailSubject = c.oneLine(c.clip(b.emailSubject, 150)) || c.DEFAULTS.emailSubject;
-      if ('emailIntro' in b) s.emailIntro = c.clip(b.emailIntro, 1000);
+      if ('emailSubject' in b) s.emailSubject = c.upperPlaceholders(c.oneLine(c.clip(b.emailSubject, 150))) || c.DEFAULTS.emailSubject;
+      if ('emailIntro' in b) s.emailIntro = c.upperPlaceholders(c.clip(b.emailIntro, 1000));
       if ('notifyEmail' in b) {
         const list = c.parseEmails(b.notifyEmail);
         if (list.length > c.MAX_NOTIFY || list.some((e) => !c.EMAIL_RE.test(e))) return res.status(400).json({ error: 'Please enter a valid email address (up to ' + c.MAX_NOTIFY + ', separated by commas).' });
