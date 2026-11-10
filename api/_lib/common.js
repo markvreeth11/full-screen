@@ -183,19 +183,8 @@ const upperPlaceholders = (str) => String(str || '').replace(PLACEHOLDER_RE, (m,
 // {placeholders} usable in the email subject and intro message. Unknown ones are left as typed.
 const fill = (str, vars) => String(str || '').replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
 
-// Resolves a small preview image URL for an upload, if its thumbnail was uploaded (older uploads have none).
-async function thumbResolver(rows) {
-  const names = {};
-  for (const w of [...new Set(rows.map((r) => r.week_key))]) {
-    const { data } = await sb().storage.from('media').list(w, { limit: 1000 });
-    names[w] = new Set((data || []).map((f) => f.name));
-  }
-  return (it) => (names[it.week_key] && names[it.week_key].has(`${it.id}-thumb.jpg`) ? `${publicUrl(`${it.week_key}/${it.id}-thumb.jpg`)}?v=${it.version}` : null);
-}
-
-// The alert email: your message, small previews of the media, and a Download button.
-// Covers one file or a whole batch. opts.thumbUrl(item) -> url | null.
-function buildNotification(s, req, input, opts = {}) {
+// The alert email: your message and a Download button. Covers one file or a whole batch.
+function buildNotification(s, req, input) {
   const items = Array.isArray(input) ? input : [input];
   const n = items.length, first = items[0];
   const when = new Date(sundayOf(first.week_key) + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
@@ -210,20 +199,11 @@ function buildNotification(s, req, input, opts = {}) {
   const subject = oneLine(fill(s.emailSubject || DEFAULTS.emailSubject, vars)).slice(0, 150) || oneLine(fill(DEFAULTS.emailSubject, vars)).slice(0, 150);
   const message = fill((s.emailIntro || '').trim() || DEFAULTS.emailIntro, vars).trim();
   const link = siteUrl(req) + '/view'; // volunteer page: asks for the viewer password, then lists + downloads files
-  const MAX_SHOWN = 6, shown = items.slice(0, MAX_SHOWN), more = n - shown.length;
-  const tile = 'display:inline-block;width:150px;vertical-align:top;margin:0 8px 8px 0;border-radius:10px;';
-  const previews = shown.map((it) => {
-    const url = opts.thumbUrl && opts.thumbUrl(it);
-    return url
-      ? `<img src="${esc(url)}" alt="${esc(label(it))}" width="150" style="${tile}height:auto;border:1px solid #d7e1ea;background:#eef3f8">`
-      : `<span style="${tile}height:84px;line-height:84px;text-align:center;background:#e8eff6;color:#4c6479;font-size:13px">${it.kind === 'video' ? '▶ Video' : 'Photo'}</span>`;
-  }).join('');
   return {
     subject,
     text: `${message}\n\nDownload: ${link}`,
     html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px">` +
       `<p style="font-size:18px;line-height:1.45;margin:0 0 18px">${esc(message).replace(/\n/g, '<br>')}</p>` +
-      `<div style="margin:0 0 6px">${previews}</div>` + (more ? `<p style="margin:0 0 6px;color:#4c6479;font-size:14px">+ ${more} more</p>` : '') +
       `<p style="margin:16px 0"><a href="${esc(link)}" style="background:#17436b;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none;font-weight:600;display:inline-block">Download</a></p></div>`,
   };
 }
@@ -233,7 +213,7 @@ async function notifyUploads(s, req, items) {
   try {
     const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, MAX_NOTIFY);
     if (!to.length || !items.length) return;
-    await sendEmail({ to, ...buildNotification(s, req, items, { thumbUrl: await thumbResolver(items).catch(() => null) }) });
+    await sendEmail({ to, ...buildNotification(s, req, items) });
   } catch (e) { console.error('notifyUploads', e.message); }
 }
 

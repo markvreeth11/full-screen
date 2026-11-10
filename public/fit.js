@@ -50,16 +50,13 @@
   // Screen-ready files are lossless PNG. fmt='jpg' is only used to re-fit older .jpg files in place.
   const encode = (c, fmt) => (fmt === 'jpg' ? toBlob(c, 'image/jpeg', 0.95) : toBlob(c, 'image/png'));
 
-  // Small JPEG preview (480x270) of a finished 1920x1080 canvas — used in alert emails and previews.
-  const makeThumb = (c) => toBlob(scaleTo(c, 480, 270), 'image/jpeg', 0.82);
-
   async function fitImage(file, bg, fmt = 'png') {
     const bmp = await toBitmap(file), { w, h } = size(bmp);
     if (!w || !h) throw new Error('Could not read this image');
     const ext = fmt === 'jpg' ? 'jpg' : 'png';
     if (w === W && h === H) {
       const c = canvas(W, H); c.getContext('2d').drawImage(bmp, 0, 0);
-      return { blob: await encode(c, ext), thumb: await makeThumb(c), ext, fullFrame: true, srcW: w, srcH: h };
+      return { blob: await encode(c, ext), ext, fullFrame: true, srcW: w, srcH: h };
     }
     const sc = Math.min(W / w, H / h);
     const tw = Math.min(W, Math.max(1, Math.round(w * sc))), th = Math.min(H, Math.max(1, Math.round(h * sc)));
@@ -68,31 +65,7 @@
     const c = canvas(W, H), x = c.getContext('2d');
     x.drawImage(bg, 0, 0, W, H);
     x.drawImage(fg, Math.floor((W - tw) / 2), Math.floor((H - th) / 2));
-    return { blob: await encode(c, ext), thumb: await makeThumb(c), ext, fullFrame: false, srcW: w, srcH: h };
-  }
-
-  // Best-effort preview frame of a video (placed on the background like the screen shows it).
-  // Resolves null if this browser can't decode the video — the upload still works without it.
-  function videoThumb(file, bg) {
-    return new Promise((resolve) => {
-      const v = document.createElement('video'), url = URL.createObjectURL(file);
-      let done = false;
-      const finish = (b) => { if (done) return; done = true; clearTimeout(timer); URL.revokeObjectURL(url); resolve(b); };
-      const timer = setTimeout(() => finish(null), 8000);
-      v.muted = true; v.playsInline = true; v.preload = 'auto';
-      v.onerror = () => finish(null);
-      v.onloadeddata = () => { try { v.currentTime = Math.min(1, (v.duration || 2) / 2); } catch { finish(null); } };
-      v.onseeked = () => {
-        try {
-          const vw = v.videoWidth, vh = v.videoHeight; if (!vw || !vh) return finish(null);
-          const c = canvas(480, 270), x = c.getContext('2d'); x.drawImage(bg, 0, 0, 480, 270);
-          const sc = Math.min(480 / vw, 270 / vh), tw = Math.round(vw * sc), th = Math.round(vh * sc);
-          x.drawImage(v, Math.floor((480 - tw) / 2), Math.floor((270 - th) / 2), tw, th);
-          c.toBlob((b) => finish(b), 'image/jpeg', 0.82);
-        } catch { finish(null); }
-      };
-      v.src = url;
-    });
+    return { blob: await encode(c, ext), ext, fullFrame: false, srcW: w, srcH: h };
   }
 
   // Background template: cover-fit any image to 1920x1080.
@@ -104,5 +77,5 @@
     return toBlob(c, 'image/png');
   }
 
-  g.Fit = { W, H, fitImage, videoThumb, loadBg, makeBackground };
+  g.Fit = { W, H, fitImage, loadBg, makeBackground };
 })(window);

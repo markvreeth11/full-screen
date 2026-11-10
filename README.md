@@ -51,7 +51,7 @@ Alerts go to up to 20 addresses (**Admin → Settings → Email me when a file i
 3. In Vercel add `SMTP_USER` (the Gmail address) and `SMTP_PASS` (the app password), then redeploy.
 4. In Admin → Settings enter the addresses, click **Send test email**, then **Save settings**.
 
-The alert email says *"New media has been uploaded! To access your downloads use password - …"* (the volunteer viewer password), shows small previews of the media (the upload page makes a tiny thumbnail for each file), and ends with a **Download** button that opens `/view`. Alerts come from that Gmail address; everyone else is on BCC so addresses stay private. Other mail providers work too: also set `SMTP_HOST` (and `SMTP_PORT`, default 465). Some Google Workspace accounts block app passwords — use a regular Gmail account if so.
+The alert email says *"New media has been uploaded! To access your downloads use password - …"* (the volunteer viewer password), and ends with a **Download** button that opens `/view`. Alerts come from that Gmail address; everyone else is on BCC so addresses stay private. Other mail providers work too: also set `SMTP_HOST` (and `SMTP_PORT`, default 465). Some Google Workspace accounts block app passwords — use a regular Gmail account if so.
 
 **B. Resend (needs your own domain for more than one recipient)**
 1. Create an account at [resend.com](https://resend.com) → **API Keys → Create API Key**.

@@ -57,7 +57,7 @@ module.exports = c.wrap(async (req, res) => {
     }
     case 'delete': {
       const it = await one(b.id); if (!it) return res.status(404).json({ error: 'Not found' });
-      await c.removeObjects('media', [it.media_path, `${it.week_key}/${it.id}-thumb.jpg`]); await c.removeObjects('originals', [it.original_path, `${it.week_key}/${it.id}.notified`]);
+      await c.removeObjects('media', [it.media_path, `${it.week_key}/${it.id}-thumb.jpg`] /* (-thumb.jpg: leftovers from a removed feature) */); await c.removeObjects('originals', [it.original_path, `${it.week_key}/${it.id}.notified`]);
       const { error } = await sb.from('items').delete().eq('id', it.id);
       if (error) throw error;
       return res.json({ ok: true });
@@ -79,7 +79,7 @@ module.exports = c.wrap(async (req, res) => {
       const msg = c.buildNotification(preview, req, [
         { week_key: wk, kind: 'image', title: 'Sample photo', description: 'A sample description', original_name: 'sample.jpg' },
         { week_key: wk, kind: 'image', title: 'Another photo', description: '', original_name: 'another.jpg' },
-      ], { thumbUrl: () => `${c.siteUrl(req)}/logo.png` });
+      ]);
       const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), ...msg, subject: 'TEST: ' + msg.subject });
       return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: `${r.error}\n${c.emailDiagnostics()}` });
     }
@@ -139,9 +139,8 @@ module.exports = c.wrap(async (req, res) => {
       const it = await one(b.id); if (!it || !it.original_path) return res.status(404).json({ error: 'Not found' });
       const g = await sb.storage.from('originals').createSignedUrl(it.original_path, 600);
       const u = await sb.storage.from('media').createSignedUploadUrl(it.media_path, { upsert: true });
-      const tp = `${it.week_key}/${it.id}-thumb.jpg`, t = await sb.storage.from('media').createSignedUploadUrl(tp, { upsert: true });
-      if (g.error || u.error || t.error) throw g.error || u.error || t.error;
-      return res.json({ original: g.data.signedUrl, upload: { bucket: 'media', path: it.media_path, token: u.data.token }, thumb: { bucket: 'media', path: tp, token: t.data.token } });
+      if (g.error || u.error) throw g.error || u.error;
+      return res.json({ original: g.data.signedUrl, upload: { bucket: 'media', path: it.media_path, token: u.data.token } });
     }
     case 'rerender-done': {
       await sb.from('items').update({ version: Date.now() }).eq('id', b.id);

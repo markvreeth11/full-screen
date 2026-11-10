@@ -23,7 +23,6 @@ module.exports = c.wrap(async (req, res) => {
     const targets = kind === 'image'
       ? [{ bucket: 'originals', path: `${week}/${id}.${ext}` }, { bucket: 'media', path: `${week}/${id}.${outExt}` }]
       : [{ bucket: 'media', path: `${week}/${id}.${ext}` }];
-    if (b.thumb === true) targets.push({ bucket: 'media', path: `${week}/${id}-thumb.jpg` }); // optional small preview (never required)
     const uploads = [];
     for (const t of targets) {
       const { data, error } = await sb.storage.from(t.bucket).createSignedUploadUrl(t.path);
