@@ -137,9 +137,9 @@ $('#save').onclick=async()=>{
   b.uploadsOpen=$('#uploadsOpen').checked;
   try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
   setTimeout(()=>$('#saved').textContent='',3000)};
-$('#testmail').onclick=async()=>{const st=$('#mailst');st.className='small mute';st.style.color='';st.textContent='Sending…';
+$('#testmail').onclick=async()=>{const st=$('#mailst');st.className='small mute';st.style.color='';st.style.whiteSpace='';st.textContent='Sending…';
   try{await api('notify-test',{email:$('#notifyEmail').value});st.className='small ok-text';st.textContent='Test email sent ✓ — check your inbox (and spam). Click "Save settings" to keep it.'}
-  catch(e){st.className='small';st.style.color='var(--danger)';st.textContent='Could not send: '+e.message}};
+  catch(e){st.className='small';st.style.color='var(--danger)';st.style.whiteSpace='pre-line';st.textContent='Could not send: '+e.message}};
 $('#purge').onclick=async()=>{if(!confirm('Delete all files from finished weeks now?'))return;
   try{const r=await api('purge');$('#saved').textContent=`Cleaned up (${r.files} files).`;loadItems()}catch(e){$('#saved').textContent=e.message}};
 

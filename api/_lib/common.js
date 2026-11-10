@@ -101,6 +101,15 @@ const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 const parseEmails = (v) => String(v || '').split(/[,;\s]+/).filter(Boolean);
 const oneLine = (v) => String(v || '').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
 
+// Admin-only troubleshooting text: which email variables this deployment can see (names only, never values).
+function emailDiagnostics() {
+  const yn = (k) => `${k} ${process.env[k] ? '✓' : '✗'}`;
+  const similar = Object.keys(process.env).filter((k) => /smtp|resend|notify/i.test(k) && !['SMTP_USER', 'SMTP_PASS', 'SMTP_HOST', 'SMTP_PORT', 'RESEND_API_KEY', 'NOTIFY_FROM'].includes(k));
+  return `Detected: ${yn('SMTP_USER')}, ${yn('SMTP_PASS')}, ${yn('RESEND_API_KEY')}` +
+    (similar.length ? ` · similar names found (check spelling/spaces): ${similar.map((k) => JSON.stringify(k)).join(', ')}` : '') +
+    ` · environment: ${process.env.VERCEL_ENV || 'unknown'} · version: ${(process.env.VERCEL_GIT_COMMIT_SHA || 'unknown').slice(0, 7)}`;
+}
+
 // Sends with SMTP (e.g. a Gmail account) when SMTP_USER + SMTP_PASS are set, otherwise with Resend.
 async function sendEmail(msg) {
   const u = !!process.env.SMTP_USER, p = !!process.env.SMTP_PASS;
@@ -205,5 +214,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
+  wrap, exists, removeObjects, purgeOld, emailDiagnostics, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };

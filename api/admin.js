@@ -96,7 +96,7 @@ module.exports = c.wrap(async (req, res) => {
       const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), subject: 'Weekly Uploads: test email',
         text: 'This is a test. You will get an email like this whenever a file is uploaded.',
         html: '<p style="font-family:-apple-system,Segoe UI,Arial,sans-serif">This is a test. You will get an email like this whenever a file is uploaded.</p>' });
-      return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: r.error });
+      return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: `${r.error}\n${c.emailDiagnostics()}` });
     }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {

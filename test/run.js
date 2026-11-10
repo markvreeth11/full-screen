@@ -209,6 +209,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   console.log('✓ app password pasted with spaces still works');
   const keepPass = process.env.SMTP_PASS; delete process.env.SMTP_PASS;
   assert.match((await aapi2('notify-test', { email: 'you@example.com' })).body.error, /SMTP_PASS is missing/, 'names the missing variable');
+  assert.match((await aapi2('notify-test', { email: 'you@example.com' })).body.error, /Detected: SMTP_USER ✓, SMTP_PASS ✗.*version:/s, 'shows what the server can see');
   process.env.SMTP_PASS = keepPass; delete process.env.SMTP_USER;
   assert.match((await aapi2('notify-test', { email: 'you@example.com' })).body.error, /SMTP_USER is missing/);
   delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
