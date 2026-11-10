@@ -185,7 +185,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const got = { rcpt: [], raw: '' };
   const smtp = new SMTPServer({
     authOptional: false, allowInsecureAuth: true, disabledCommands: ['STARTTLS'],
-    onAuth: (a, sess, cb) => (a.password === 'app-pass' ? cb(null, { user: a.username }) : cb(new Error('Invalid login'))),
+    onAuth: (a, sess, cb) => (['app-pass', 'abcdefghijklmnop'].includes(a.password) ? cb(null, { user: a.username }) : cb(new Error('Invalid login'))),
     onRcptTo: (addr, sess, cb) => { got.rcpt.push(addr.address); cb(); },
     onData: (stream, sess, cb) => { let d = ''; stream.on('data', (c) => (d += c)); stream.on('end', () => { got.raw = d; cb(); }); },
   });
@@ -204,6 +204,9 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal(bad.status, 502); assert.match(bad.body.error, /App Password/);
   assert.equal((await uploadViaApi('StillWorks')).status(), 200, 'bad email login never blocks an upload');
   console.log('✓ wrong app password gives a clear message and never blocks uploads');
+  process.env.SMTP_PASS = 'abcd efgh ijkl mnop'; // pasted the way Google displays it (with spaces)
+  assert.equal((await aapi2('notify-test', { email: 'you@example.com' })).status, 200, 'spaces in a Google app password are ignored');
+  console.log('✓ app password pasted with spaces still works');
   delete process.env.SMTP_USER; delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
   for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks'].includes(i.title))) await aapi2('delete', { id: it.id });
 

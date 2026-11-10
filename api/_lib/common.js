@@ -107,13 +107,16 @@ async function sendEmail(msg) {
   return sendViaResend(msg);
 }
 
+// Google displays app passwords as "abcd efgh ijkl mnop"; the spaces are not part of the password.
+const appPassword = (p) => (/^[a-z]{4}( [a-z]{4}){3}$/i.test(String(p).trim()) ? String(p).replace(/\s+/g, '') : p);
+
 async function sendViaSmtp({ to, subject, html, text }) {
   try {
     const nodemailer = require('nodemailer');
     const port = +process.env.SMTP_PORT || 465;
     const tx = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com', port, secure: port === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      auth: { user: process.env.SMTP_USER, pass: appPassword(process.env.SMTP_PASS) },
       connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 15000,
     });
     // One message: To = the sending account itself, everyone else on BCC so addresses stay private.
