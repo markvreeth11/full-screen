@@ -36,6 +36,11 @@
     <label>Email me when a file is uploaded <span class="mute">(blank = no emails)</span></label>
     <div class="row"><input type="text" id="notifyEmail" class="grow" placeholder="you@example.com" autocomplete="email"><button class="ghost sm" id="testmail" type="button">Send test email</button></div>
     <p class="small mute" id="mailst">Separate several addresses with commas (up to 20).</p>
+    <label for="emailSubject">Email subject</label>
+    <input type="text" id="emailSubject" maxlength="150" placeholder="New {type} uploaded: {title}">
+    <label for="emailIntro">Message at the top of the email <span class="mute">(optional)</span></label>
+    <textarea id="emailIntro" maxlength="1000" rows="3" placeholder="e.g. Hi team, a new upload is ready for Sunday."></textarea>
+    <p class="small mute">You can use <code>{title}</code> <code>{type}</code> <code>{file}</code> <code>{sunday}</code> <code>{description}</code> in both. <b>Send test email</b> previews what you've typed, even before saving.</p>
     <label><input type="checkbox" id="uploadsOpen"> Uploads open</label>
     <p class="small mute" id="wk"></p>
     <p class="row"><button id="save">Save settings</button><button class="ghost" id="purge">Delete finished weeks now</button><span id="saved" class="mute"></span></p>
@@ -52,7 +57,7 @@ const api=async(a,body={})=>{const r=await fetch('/api/admin',{method:'POST',hea
   if(r.status===401&&a!=='login'){show(false);throw new Error('Signed out')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
 const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const KEYS=['timezone','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','uploadCode','notifyEmail'];
+const KEYS=['timezone','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','uploadCode','notifyEmail','emailSubject','emailIntro'];
 let week=null,timer,SB;
 
 function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok;if(!ok)clearInterval(timer)}
@@ -138,7 +143,7 @@ $('#save').onclick=async()=>{
   try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
   setTimeout(()=>$('#saved').textContent='',3000)};
 $('#testmail').onclick=async()=>{const st=$('#mailst');st.className='small mute';st.style.color='';st.style.whiteSpace='';st.textContent='Sending…';
-  try{await api('notify-test',{email:$('#notifyEmail').value});st.className='small ok-text';st.textContent='Test email sent ✓ — check your inbox (and spam). Click "Save settings" to keep it.'}
+  try{await api('notify-test',{email:$('#notifyEmail').value,emailSubject:$('#emailSubject').value,emailIntro:$('#emailIntro').value});st.className='small ok-text';st.textContent='Test email sent ✓ — check your inbox (and spam). Click "Save settings" to keep your changes.'}
   catch(e){st.className='small';st.style.color='var(--danger)';st.style.whiteSpace='pre-line';st.textContent='Could not send: '+e.message}};
 $('#purge').onclick=async()=>{if(!confirm('Delete all files from finished weeks now?'))return;
   try{const r=await api('purge');$('#saved').textContent=`Cleaned up (${r.files} files).`;loadItems()}catch(e){$('#saved').textContent=e.message}};

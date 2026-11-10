@@ -173,6 +173,20 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.ok(em.html.includes('&lt;script&gt;') && !em.html.includes('<script>'), 'HTML is escaped');
   assert.ok(em.html.includes('desc &lt;b&gt;bold&lt;/b&gt;') && /\/admin/.test(em.text) && /Sunday, November 15/.test(em.text), 'email has details + admin link');
   console.log('✓ upload sends one email (escaped, one-line subject, admin link)');
+  // editable subject + intro with placeholders
+  assert.equal((await aapi2('settings-put', { emailSubject: '[Church] {Title} ({type}) for {sunday} {nope}', emailIntro: 'Hi team,\n<b>New</b> for {sunday}: {file}' })).status, 200);
+  const nTpl = emails.length; assert.equal((await uploadViaApi('Youth Night')).status(), 200);
+  const tp = emails.at(-1); assert.equal(emails.length, nTpl + 1);
+  assert.equal(tp.subject, '[Church] Youth Night (image) for November 15 {nope}', 'subject placeholders filled');
+  assert.ok(tp.html.includes('Hi team,<br>&lt;b&gt;New&lt;/b&gt; for November 15: pic.png'), 'intro filled, escaped, newline kept');
+  assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\n'), 'intro in plain text too');
+  const pv = await aapi2('notify-test', { email: 'you@example.com', emailSubject: 'Preview {title}', emailIntro: 'unsaved intro' });
+  assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
+  assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {Title} ({type}) for {sunday} {nope}', 'preview did not save');
+  await aapi2('settings-put', { emailSubject: '   ', emailIntro: '' });
+  assert.equal((await aapi2('settings-get')).body.emailSubject, 'New {type} uploaded: {title}', 'blank subject resets to default');
+  console.log('✓ email subject + intro are editable with placeholders; test previews unsaved edits');
+  for (const it of fake.tables.items.filter((i) => i.title === 'Youth Night' && i.original_name === 'pic.png')) await aapi2('delete', { id: it.id });
   await aapi2('settings-put', { notifyEmail: 'fail@example.com' });
   const r2 = await uploadViaApi('Second'); assert.equal(r2.status(), 200, 'upload succeeds even if the email service rejects the email');
   await aapi2('settings-put', { notifyEmail: '' });

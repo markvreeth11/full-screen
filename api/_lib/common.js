@@ -16,6 +16,8 @@ const DEFAULTS = {
   showCaptions: true,
   transition: 'fade',
   uploadCode: '',
+  emailSubject: 'New {type} uploaded: {title}', // placeholders: {type} {title} {file} {sunday} {description}
+  emailIntro: '',        // optional message shown at the top of the alert email
   notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)
   uploadsOpen: true,
   keepPastWeeks: 0,      // 0 = files are deleted as soon as the week is over
@@ -169,22 +171,36 @@ const siteUrl = (req) => {
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   return host ? `${req.headers['x-forwarded-proto'] || 'https'}://${host}` : '';
 };
+// {placeholders} usable in the email subject and intro message. Unknown ones are left as typed.
+const fill = (str, vars) => String(str || '').replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
+
+function buildNotification(s, req, it) {
+  const sunday = sundayOf(it.week_key);
+  const when = new Date(sunday + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const vars = {
+    type: it.kind, title: oneLine(it.title) || oneLine(it.original_name) || `a ${it.kind}`,
+    file: oneLine(it.original_name), sunday: when, description: oneLine(it.description),
+  };
+  const subject = oneLine(fill(s.emailSubject || DEFAULTS.emailSubject, vars)).slice(0, 150) || oneLine(fill(DEFAULTS.emailSubject, vars));
+  const intro = fill(s.emailIntro, vars).trim();
+  const admin = siteUrl(req) + '/admin';
+  const rows = [['Type', it.kind === 'video' ? 'Video' : 'Image'], ['Title', it.title], ['Description', it.description], ['File', it.original_name], ['For', `Sunday, ${when}`]].filter((r) => r[1]);
+  return {
+    subject,
+    text: (intro ? intro + '\n\n' : '') + rows.map((r) => `${r[0]}: ${r[1]}`).join('\n') + `\n\nView and download: ${admin}`,
+    html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px"><h2 style="margin:0 0 12px">New ${esc(it.kind)} uploaded</h2>` +
+      (intro ? `<p style="margin:0 0 14px">${esc(intro).replace(/\n/g, '<br>')}</p>` : '') +
+      rows.map((r) => `<p style="margin:4px 0"><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('') +
+      `<p style="margin:18px 0"><a href="${esc(admin)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">View in admin</a></p></div>`,
+  };
+}
+
 // Never throws and never blocks an upload from succeeding.
 async function notifyUpload(s, req, it) {
   try {
     const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, MAX_NOTIFY);
     if (!to.length) return;
-    const sunday = sundayOf(it.week_key), when = new Date(sunday + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
-    const label = oneLine(it.title) || oneLine(it.original_name) || `a ${it.kind}`;
-    const admin = siteUrl(req) + '/admin';
-    const rows = [['Type', it.kind === 'video' ? 'Video' : 'Image'], ['Title', it.title], ['Description', it.description], ['File', it.original_name], ['For', `Sunday, ${when}`]].filter((r) => r[1]);
-    await sendEmail({
-      to, subject: `New ${it.kind} uploaded: ${label}`.slice(0, 150),
-      text: rows.map((r) => `${r[0]}: ${r[1]}`).join('\n') + `\n\nView and download: ${admin}`,
-      html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px"><h2 style="margin:0 0 12px">New ${it.kind} uploaded</h2>` +
-        rows.map((r) => `<p style="margin:4px 0"><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('') +
-        `<p style="margin:18px 0"><a href="${esc(admin)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">View in admin</a></p></div>`,
-    });
+    await sendEmail({ to, ...buildNotification(s, req, it) });
   } catch (e) { console.error('notifyUpload', e.message); }
 }
 
@@ -214,5 +230,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld, emailDiagnostics, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
+  wrap, exists, removeObjects, purgeOld, emailDiagnostics, buildNotification, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };

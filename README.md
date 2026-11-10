@@ -59,6 +59,8 @@ Alerts come from that Gmail address; everyone else is on BCC so addresses stay p
 
 If both are configured, SMTP (A) is used.
 
+You can change the email's **subject** and add an **intro message** in Admin → Settings. Placeholders: `{title}` `{type}` `{file}` `{sunday}` `{description}`. *Send test email* previews unsaved edits.
+
 ### 4. Share
 - Bookmark/send `https://your-domain/` to uploaders.
 - Open `https://your-domain/display` on the screen PC. For sound: launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`, or click the page once.

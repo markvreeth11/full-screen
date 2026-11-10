@@ -93,9 +93,12 @@ module.exports = c.wrap(async (req, res) => {
     case 'notify-test': {
       const to = c.parseEmails(b.email).filter((e) => c.EMAIL_RE.test(e));
       if (!to.length) return res.status(400).json({ error: 'Type a valid email address first.' });
-      const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), subject: 'Weekly Uploads: test email',
-        text: 'This is a test. You will get an email like this whenever a file is uploaded.',
-        html: '<p style="font-family:-apple-system,Segoe UI,Arial,sans-serif">This is a test. You will get an email like this whenever a file is uploaded.</p>' });
+      // Preview with whatever is typed in the form (even if not saved yet), using sample upload details.
+      const preview = { ...s };
+      if (typeof b.emailSubject === 'string') preview.emailSubject = c.oneLine(c.clip(b.emailSubject, 150)) || c.DEFAULTS.emailSubject;
+      if (typeof b.emailIntro === 'string') preview.emailIntro = c.clip(b.emailIntro, 1000);
+      const msg = c.buildNotification(preview, req, { week_key: c.currentWeek(s), kind: 'image', title: 'Sample photo', description: 'A sample description', original_name: 'sample.jpg' });
+      const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), ...msg, subject: 'TEST: ' + msg.subject });
       return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: `${r.error}\n${c.emailDiagnostics()}` });
     }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
@@ -113,6 +116,8 @@ module.exports = c.wrap(async (req, res) => {
       if ('transition' in b) s.transition = b.transition === 'none' ? 'none' : 'fade';
       if ('uploadCode' in b) s.uploadCode = c.clip(b.uploadCode, 100);
       if ('uploadsOpen' in b) s.uploadsOpen = !!b.uploadsOpen;
+      if ('emailSubject' in b) s.emailSubject = c.oneLine(c.clip(b.emailSubject, 150)) || c.DEFAULTS.emailSubject;
+      if ('emailIntro' in b) s.emailIntro = c.clip(b.emailIntro, 1000);
       if ('notifyEmail' in b) {
         const list = c.parseEmails(b.notifyEmail);
         if (list.length > c.MAX_NOTIFY || list.some((e) => !c.EMAIL_RE.test(e))) return res.status(400).json({ error: 'Please enter a valid email address (up to ' + c.MAX_NOTIFY + ', separated by commas).' });
