@@ -1,0 +1,26 @@
+{
+  "name": "full-screen",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/markvreeth11/full-screen.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/markvreeth11/full-screen/issues"
+  },
+  "homepage": "https://github.com/markvreeth11/full-screen#readme",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "express": "^5.3.0",
+    "multer": "^2.5.0",
+    "sharp": "^0.35.5"
+  }
+}

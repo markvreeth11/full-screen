@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Screen</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+#stage{position:fixed;inset:0;background:#000 center/contain no-repeat}
+.layer{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;background:#000}
+.fade .layer{transition:opacity .8s ease}
+.layer.on{opacity:1}
+#cap{position:absolute;left:0;right:0;bottom:0;padding:5vh 5vw 4.5vh;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.7);background:linear-gradient(transparent,rgba(0,0,0,.72));opacity:0;transition:opacity .6s;pointer-events:none}
+#cap.on{opacity:1}#cap h1{margin:0;font:700 4.2vh/1.15 Georgia,serif}#cap p{margin:.4vh 0 0;font:2.6vh/1.35 system-ui,sans-serif;opacity:.92}
+#hint{position:fixed;right:12px;bottom:12px;padding:8px 12px;background:rgba(0,0,0,.7);color:#fff;font:14px system-ui;border-radius:8px;display:none;cursor:pointer}
+</style></head><body>
+<div id="stage"><div id="cap"><h1></h1><p></p></div></div><div id="hint">🔇 Click anywhere to enable sound</div>
+<script>
+const stage=document.getElementById('stage'),cap=document.getElementById('cap'),hint=document.getElementById('hint');
+let state={weekKey:null,items:[],settings:{},bg:null,sig:''},list=[],idx=-1,timer=null,cur=null,unlocked=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function poll(first){
+  try{
+    const d=await (await fetch('/api/display',{cache:'no-store'})).json();
+    if(state.weekKey&&d.weekKey!==state.weekKey)return location.reload();   // new week → clean start
+    const sig=JSON.stringify(d.items.map(i=>[i.id,i.url,i.title,i.description,i.duration]))+d.bg+JSON.stringify(d.settings);
+    const changed=sig!==state.sig;state={...d,sig};
+    stage.className=d.settings.transition==='none'?'':'fade';
+    stage.style.backgroundImage=`url(${d.bg})`;
+    if(changed||first){list=d.items;if(first||!cur||!list.some(i=>i.id===cur.id))idx=-1,next();}
+  }catch(e){/* offline: keep playing what we have */}
+}
+function layer(el){el.className='layer';stage.insertBefore(el,cap);return el}
+function setCaption(it){
+  const on=state.settings.showCaptions&&(it.title||it.description);
+  cap.classList.remove('on');
+  if(on)setTimeout(()=>{cap.querySelector('h1').textContent=it.title||'';cap.querySelector('p').textContent=it.description||'';cap.classList.add('on')},400);
+}
+async function next(){
+  clearTimeout(timer);
+  if(!list.length){[...stage.querySelectorAll('.layer')].forEach(l=>l.classList.remove('on'));cap.classList.remove('on');cur=null;timer=setTimeout(()=>poll(),15000);return}
+  idx=(idx+1)%list.length;const it=list[idx];cur=it;
+  let el;
+  if(it.kind==='video'){
+    el=layer(document.createElement('video'));el.src=it.url;el.playsInline=true;el.preload='auto';
+    el.muted=!unlocked;el.onended=next;el.onerror=()=>timer=setTimeout(next,1500);
+    await new Promise(r=>{el.oncanplay=r;setTimeout(r,8000)});
+    try{await el.play()}catch{el.muted=true;try{await el.play()}catch{}}
+    if(el.muted&&!unlocked)hint.style.display='block';
+  }else{
+    el=layer(new Image());el.src=it.url;
+    await new Promise(r=>{el.onload=el.onerror=r;setTimeout(r,8000)});
+    timer=setTimeout(next,(it.duration||state.settings.imageDuration||10)*1000);
+  }
+  const old=[...stage.querySelectorAll('.layer.on')];
+  requestAnimationFrame(()=>{el.classList.add('on');old.forEach(o=>o.classList.remove('on'))});
+  setCaption(it);
+  setTimeout(()=>old.forEach(o=>{if(o.pause)o.pause();o.remove()}),1200);
+}
+addEventListener('click',()=>{unlocked=true;hint.style.display='none';stage.querySelectorAll('video').forEach(v=>v.muted=false);if(document.fullscreenElement==null)document.documentElement.requestFullscreen?.().catch(()=>{})});
+poll(true);setInterval(poll,30000);
+</script></body></html>
