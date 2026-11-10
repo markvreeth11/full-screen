@@ -103,7 +103,9 @@ const oneLine = (v) => String(v || '').replace(/[\r\n\u2028\u2029]+/g, ' ').trim
 
 // Sends with SMTP (e.g. a Gmail account) when SMTP_USER + SMTP_PASS are set, otherwise with Resend.
 async function sendEmail(msg) {
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) return sendViaSmtp(msg);
+  const u = !!process.env.SMTP_USER, p = !!process.env.SMTP_PASS;
+  if (u && p) return sendViaSmtp(msg);
+  if (u !== p) return { ok: false, error: `${u ? 'SMTP_PASS' : 'SMTP_USER'} is missing in Vercel (the other one, ${u ? 'SMTP_USER' : 'SMTP_PASS'}, is set). Add it for the Production environment and redeploy.` };
   return sendViaResend(msg);
 }
 
