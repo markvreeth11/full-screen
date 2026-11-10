@@ -246,25 +246,43 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   for (const it of fake.tables.items.filter((i) => i.week_key === d.weekKey && !baseIds.includes(i.id))) await aapi2('delete', { id: it.id });
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
-  // --- email alerts via SMTP (Gmail-style): one message, recipients on BCC ---
+  // --- email alerts via SMTP (Gmail-style): every recipient gets their OWN message ---
   const { SMTPServer } = require('smtp-server');
-  const got = { rcpt: [], raw: '' };
+  const got = { msgs: [], refuse: null };
   const smtp = new SMTPServer({
     authOptional: false, allowInsecureAuth: true, disabledCommands: ['STARTTLS'],
     onAuth: (a, sess, cb) => (['app-pass', 'abcdefghijklmnop'].includes(a.password) ? cb(null, { user: a.username }) : cb(new Error('Invalid login'))),
-    onRcptTo: (addr, sess, cb) => { got.rcpt.push(addr.address); cb(); },
-    onData: (stream, sess, cb) => { let d = ''; stream.on('data', (c) => (d += c)); stream.on('end', () => { got.raw = d; cb(); }); },
+    onMailFrom: (addr, sess, cb) => { sess._rcpt = []; cb(); },
+    onRcptTo: (addr, sess, cb) => {
+      if (got.refuse && addr.address === got.refuse) return cb(Object.assign(new Error('550 Mailbox unavailable'), { responseCode: 550 }));
+      sess._rcpt.push(addr.address); cb();
+    },
+    onData: (stream, sess, cb) => { let d = ''; stream.on('data', (c) => (d += c)); stream.on('end', () => { got.msgs.push({ rcpt: [...sess._rcpt], raw: d }); cb(); }); },
   });
   await new Promise((r) => smtp.listen(2525, '127.0.0.1', r));
   Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: '2525', SMTP_USER: 'church@example.com', SMTP_PASS: 'app-pass' });
   assert.equal((await aapi2('settings-put', { notifyEmail: six })).status, 200);
-  const resendBefore = emails.length;
+  const resendBefore = emails.length, sixList = six.split(', ');
   assert.equal((await uploadViaApi('ViaSmtp')).status(), 200);
   assert.equal(emails.length, resendBefore, 'Resend not used when SMTP is configured');
-  assert.deepEqual([...got.rcpt].sort(), [...six.split(', '), 'church@example.com'].sort(), 'all six + the sender are SMTP recipients');
-  assert.match(got.raw, /Subject: New image uploaded: ViaSmtp/); assert.match(got.raw, /To: church@example\.com/);
-  assert.ok(!got.raw.includes('person3@example.com'), 'BCC recipients are not visible in the message');
-  console.log('✓ SMTP (Gmail-style): all 6 recipients alerted on BCC, none visible to the others');
+  assert.equal(got.msgs.length, 6, 'six separate messages');
+  assert.deepEqual(got.msgs.map((m) => m.rcpt.join()).sort(), [...sixList].sort(), 'each message goes to exactly one recipient');
+  for (const m of got.msgs) {
+    assert.ok(m.raw.includes(`To: ${m.rcpt[0]}`), 'addressed to its own recipient');
+    assert.ok(sixList.filter((x) => x !== m.rcpt[0]).every((x) => !m.raw.includes(x)), 'never shows anyone else\'s address');
+    assert.match(m.raw, /Subject: New image uploaded: ViaSmtp/);
+  }
+  console.log('✓ SMTP (Gmail-style): each of the 6 recipients gets their own message');
+  // one refused address must not stop the others, and the test button says exactly who failed
+  got.msgs.length = 0; got.refuse = 'person3@example.com';
+  const part = await aapi2('notify-test', { email: six });
+  assert.equal(part.status, 502); assert.match(part.body.error, /Could not send to: person3@example\.com/);
+  assert.deepEqual(part.body.sent, sixList.filter((x) => x !== 'person3@example.com'), 'the other five were still delivered');
+  assert.equal(got.msgs.length, 5);
+  got.msgs.length = 0; assert.equal((await uploadViaApi('PartialOk')).status(), 200, 'a refused address never blocks an upload'); assert.equal(got.msgs.length, 5, 'the real alert still reaches everyone else');
+  got.refuse = null; got.msgs.length = 0;
+  const all = await aapi2('notify-test', { email: six }); assert.equal(all.status, 200); assert.deepEqual(all.body.sent, sixList, 'test reports every address it reached');
+  console.log('✓ one refused address is reported by name and never stops the others');
   process.env.SMTP_PASS = 'wrong-password';
   const bad = await aapi2('notify-test', { email: 'you@example.com' });
   assert.equal(bad.status, 502); assert.match(bad.body.error, /App Password/);
@@ -279,7 +297,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   process.env.SMTP_PASS = keepPass; delete process.env.SMTP_USER;
   assert.match((await aapi2('notify-test', { email: 'you@example.com' })).body.error, /SMTP_USER is missing/);
   delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
-  for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks'].includes(i.title))) await aapi2('delete', { id: it.id });
+  for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks', 'PartialOk'].includes(i.title))) await aapi2('delete', { id: it.id });
 
   // --- order: first uploaded -> last uploaded ---
   const uploadOrder = fake.tables.items.filter((i) => i.week_key === d.weekKey).map((i) => i.id); // insertion order = upload order

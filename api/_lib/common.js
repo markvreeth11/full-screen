@@ -128,27 +128,40 @@ async function sendEmail(msg) {
 // Google displays app passwords as "abcd efgh ijkl mnop"; the spaces are not part of the password.
 const appPassword = (p) => (/^[a-z]{4}( [a-z]{4}){3}$/i.test(String(p).trim()) ? String(p).replace(/\s+/g, '') : p);
 
+// Each recipient gets their OWN message addressed to them (more reliable than one BCC message, and a
+// refused address can't affect the others). Returns { ok, sent:[addr], failed:[{to,error}], error? }.
 async function sendViaSmtp({ to, subject, html, text }) {
+  const recipients = [].concat(to);
+  let tx;
   try {
     const nodemailer = require('nodemailer');
     const port = +process.env.SMTP_PORT || 465;
-    const tx = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com', port, secure: port === 465,
+    tx = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com', port, secure: port === 465, pool: true, maxConnections: 1,
       auth: { user: process.env.SMTP_USER, pass: appPassword(process.env.SMTP_PASS) },
       connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 15000,
     });
-    // One message: To = the sending account itself, everyone else on BCC so addresses stay private.
-    await tx.sendMail({
-      from: process.env.NOTIFY_FROM || `Weekly Uploads <${process.env.SMTP_USER}>`,
-      to: process.env.SMTP_USER, bcc: to, subject, html, text,
-    });
-    return { ok: true };
+    const from = process.env.NOTIFY_FROM || `Weekly Uploads <${process.env.SMTP_USER}>`;
+    const sent = [], failed = [];
+    for (const addr of recipients) {
+      try {
+        const info = await tx.sendMail({ from, to: addr, subject, html, text });
+        if (info.rejected && info.rejected.length) failed.push({ to: addr, error: 'the mail server refused this address' });
+        else sent.push(addr);
+      } catch (e) {
+        if (e.code === 'EAUTH' || e.responseCode === 535) throw e; // wrong login affects everyone
+        console.error('smtp recipient failed', addr, e.code, e.responseCode, e.message);
+        failed.push({ to: addr, error: String(e.response || e.message || 'failed').replace(/\s+/g, ' ').slice(0, 160) });
+      }
+    }
+    if (failed.length) console.error('email not delivered to:', JSON.stringify(failed));
+    return { ok: !failed.length, sent, failed, error: failed.length ? `Could not send to: ${failed.map((f) => `${f.to} (${f.error})`).join('; ')}` : undefined };
   } catch (e) {
     console.error('smtp error', e.code, e.responseCode, e.message);
-    if (e.code === 'EAUTH' || e.responseCode === 535) return { ok: false, error: 'The email account rejected the login. For Gmail, SMTP_PASS must be an App Password (not your normal password).' };
-    if (e.code === 'ETIMEDOUT' || e.code === 'ESOCKET' || e.code === 'ECONNECTION') return { ok: false, error: 'Could not reach the email server. Check SMTP_HOST / SMTP_PORT.' };
-    return { ok: false, error: e.message };
-  }
+    if (e.code === 'EAUTH' || e.responseCode === 535) return { ok: false, sent: [], failed: [], error: 'The email account rejected the login. For Gmail, SMTP_PASS must be an App Password (not your normal password).' };
+    if (e.code === 'ETIMEDOUT' || e.code === 'ESOCKET' || e.code === 'ECONNECTION') return { ok: false, sent: [], failed: [], error: 'Could not reach the email server. Check SMTP_HOST / SMTP_PORT.' };
+    return { ok: false, sent: [], failed: [], error: e.message };
+  } finally { if (tx) tx.close(); }
 }
 
 async function sendViaResend({ to, subject, html, text }) {
@@ -166,7 +179,7 @@ async function sendViaResend({ to, subject, html, text }) {
       let msg = ''; try { msg = JSON.parse(body).message; } catch {}
       return { ok: false, error: msg || `Email service returned ${r.status}` };
     }
-    return { ok: true };
+    return { ok: true, sent: [].concat(to), failed: [] };
   } catch (e) {
     console.error('email error', e.message);
     return { ok: false, error: e.name === 'AbortError' ? 'Email service timed out' : e.message };

@@ -81,7 +81,9 @@ module.exports = c.wrap(async (req, res) => {
         { week_key: wk, kind: 'image', title: 'Another photo', description: '', original_name: 'another.jpg' },
       ]);
       const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), ...msg, subject: 'TEST: ' + msg.subject });
-      return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: `${r.error}\n${c.emailDiagnostics()}` });
+      if (r.ok) return res.json({ ok: true, sent: r.sent });
+      const some = r.sent && r.sent.length;
+      return res.status(502).json({ error: `${r.error}${some ? `\nDelivered to: ${r.sent.join(', ')}` : `\n${c.emailDiagnostics()}`}`, sent: r.sent || [], failed: r.failed || [] });
     }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {
