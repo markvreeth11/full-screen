@@ -1,4 +1,5 @@
 const c = require('./_lib/common');
+const F = require('./_lib/files');
 
 const pub = (i) => ({
   id: i.id, kind: i.kind, title: i.title, description: i.description, uploader: i.uploader,
@@ -30,14 +31,8 @@ module.exports = c.wrap(async (req, res) => {
 
   switch (a) {
     case 'items': {
-      const cur = c.currentWeek(s);
-      const { data: all } = await sb.from('items').select('week_key');
-      const counts = {}; (all || []).forEach((r) => { counts[r.week_key] = (counts[r.week_key] || 0) + 1; });
-      counts[cur] = counts[cur] || 0;
-      const weeks = Object.keys(counts).sort().reverse().map((k) => ({ key: k, count: counts[k], sunday: c.sundayOf(k) }));
-      const key = counts[b.week] !== undefined ? b.week : cur;
-      const { data } = await sb.from('items').select('*').eq('week_key', key).order('sort_order', { ascending: true });
-      return res.json({ current: cur, week: key, range: c.weekRange(key), sunday: c.sundayOf(key), weeks, items: (data || []).map(pub) });
+      const w = await F.weeksAndItems(s, b.week);
+      return res.json({ current: w.current, week: w.week, range: w.range, sunday: w.sunday, weeks: w.weeks, items: w.rows.map(pub) });
     }
     case 'update': {
       const patch = {};
@@ -68,28 +63,9 @@ module.exports = c.wrap(async (req, res) => {
     }
     case 'download': {
       const it = await one(b.id); if (!it) return res.status(404).json({ error: 'Not found' });
-      const orig = b.which === 'original' && it.original_path;
-      const bucket = orig ? 'originals' : 'media', p = orig ? it.original_path : it.media_path;
-      const ext = p.split('.').pop();
-      const name = ((it.title || (it.original_name || 'file').replace(/\.[^.]+$/, '')).replace(/[^\w\- ]+/g, '').trim() || 'file') + '.' + ext;
-      const { data, error } = await sb.storage.from(bucket).createSignedUrl(p, 600, { download: name });
-      if (error) throw error;
-      return res.json({ url: data.signedUrl });
+      return res.json({ url: await F.downloadUrl(it, b.which) });
     }
-    case 'download-all': {
-      const wk = /^\d{4}-\d{2}-\d{2}$/.test(b.week || '') ? b.week : c.currentWeek(s);
-      const { data } = await sb.from('items').select('*').eq('week_key', wk).order('sort_order', { ascending: true });
-      const files = [];
-      for (const [n, it] of (data || []).entries()) {
-        const orig = b.which === 'original' && it.original_path;
-        const bucket = orig ? 'originals' : 'media', p = orig ? it.original_path : it.media_path;
-        const base = (it.title || (it.original_name || 'file').replace(/\.[^.]+$/, '')).replace(/[^\w\- ]+/g, '').trim() || 'file';
-        const { data: g, error } = await sb.storage.from(bucket).createSignedUrl(p, 1800);
-        if (error) throw error;
-        files.push({ url: g.signedUrl, name: `${String(n + 1).padStart(2, '0')} ${base}.${p.split('.').pop()}` });
-      }
-      return res.json({ zipName: `Weekly Uploads - ${c.sundayOf(wk)}${b.which === 'original' ? ' (originals)' : ''}.zip`, files });
-    }
+    case 'download-all': return res.json(await F.downloadAllFiles(s, b.week, b.which));
     case 'notify-test': {
       const to = c.parseEmails(b.email).filter((e) => c.EMAIL_RE.test(e));
       if (!to.length) return res.status(400).json({ error: 'Type a valid email address first.' });
@@ -116,6 +92,7 @@ module.exports = c.wrap(async (req, res) => {
       if ('transition' in b) s.transition = b.transition === 'none' ? 'none' : 'fade';
       if ('uploadCode' in b) s.uploadCode = c.clip(b.uploadCode, 100);
       if ('uploadsOpen' in b) s.uploadsOpen = !!b.uploadsOpen;
+      if ('viewerPassword' in b) s.viewerPassword = c.clip(b.viewerPassword, 100);
       if ('emailSubject' in b) s.emailSubject = c.oneLine(c.clip(b.emailSubject, 150)) || c.DEFAULTS.emailSubject;
       if ('emailIntro' in b) s.emailIntro = c.clip(b.emailIntro, 1000);
       if ('notifyEmail' in b) {

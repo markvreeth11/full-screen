@@ -7,6 +7,7 @@ Weekly photo/video uploads for the church screen. Static pages + a few serverles
 | `/` | Volunteers / congregation | Drag & drop photos and videos, optional title + description |
 | `/display` | The screen | Fullscreen slideshow of **this week's** uploads — one permanent link |
 | `/admin` | You | See/download every file, edit titles, reorder, hide, delete, change background, settings |
+| `/view` | Volunteers | Read-only: sign in with the viewer password, preview and download this week's uploads |
 
 ## How it works
 
@@ -61,7 +62,10 @@ If both are configured, SMTP (A) is used.
 
 You can change the email's **subject** and add an **intro message** in Admin → Settings. Placeholders: `{title}` `{type}` `{file}` `{sunday}` `{description}`. *Send test email* previews unsaved edits.
 
-### 4. Share
+### 4. Volunteer viewer login (optional)
+In **Admin → Settings → Volunteer viewer password**, set a password and save. Volunteers sign in at `/view` to see and download uploads (single files, or everything as a .zip). They can't edit, delete, reorder or change settings, and their login doesn't work on `/admin`. Clear the password to switch the page off — existing volunteer sessions are locked out immediately.
+
+### 5. Share
 - Bookmark/send `https://your-domain/` to uploaders.
 - Open `https://your-domain/display` on the screen PC. For sound: launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`, or click the page once.
 - First thing: open `/admin` → Settings and set church name, time zone and (recommended) an upload code.

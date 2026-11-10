@@ -229,6 +229,58 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
   for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks'].includes(i.title))) await aapi2('delete', { id: it.id });
 
+  // --- volunteer viewer (read-only login) ---
+  const vcall = (a, b = {}, cookie = '') => fetch(B + '/api/view', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
+  const acall = (a, b = {}, cookie = '') => fetch(B + '/api/admin', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
+  const itemsBefore = fake.tables.items.length;
+  const off = await vcall('login', { password: 'anything' }); assert.equal(off.status, 401); assert.match((await off.json()).error, /not been turned on/);
+  assert.equal((await aapi2('settings-put', { viewerPassword: 'volunteer1' })).status, 200);
+  assert.equal((await vcall('items')).status, 401, 'not signed in');
+  assert.equal((await vcall('login', { password: 'nope' })).status, 401);
+  const vl = await vcall('login', { password: 'volunteer1' }); assert.equal(vl.status, 200);
+  const vck = vl.headers.get('set-cookie').split(';')[0]; assert.match(vck, /^vwr=/);
+  const vi = await (await vcall('items', {}, vck)).json();
+  assert.equal(vi.items.length, 3);
+  for (const it of vi.items) { for (const k of ['uploader', 'hidden', 'order', 'customDuration', 'createdAt']) assert.ok(!(k in it), `viewer items hide ${k}`); }
+  const vdl = await (await vcall('download', { id: vi.items[0].id, which: 'original' }, vck)).json(); assert.match(vdl.url, /\/object\/sign\/originals\//);
+  assert.equal((await (await vcall('download-all', { week: vi.week, which: 'media' }, vck)).json()).files.length, 3);
+  // the viewer cookie must not unlock ANY admin action
+  for (const [a, extra] of [['items', {}], ['settings-get', {}], ['settings-put', { uploadCode: 'x' }], ['delete', { id: vi.items[0].id }], ['update', { id: vi.items[0].id, title: 'hacked' }], ['move', { id: vi.items[0].id, dir: 'up' }], ['bg-reset', {}], ['purge', {}], ['notify-test', { email: 'a@b.co' }]]) {
+    assert.equal((await acall(a, extra, vck)).status, 401, `viewer cannot ${a}`);
+  }
+  assert.equal((await vcall('delete', { id: vi.items[0].id }, vck)).status, 400, 'no write actions exist on the viewer API');
+  assert.equal(fake.tables.items.length, itemsBefore, 'nothing changed');
+  assert.ok(!fake.tables.items.some((i) => i.title === 'hacked'));
+  console.log('✓ viewer: can list + download, cannot change anything; hides admin-only fields');
+  // admin may also use the viewer API; switching the password off locks viewers out at once
+  const admCookie = (await ctx.cookies()).map((x) => `${x.name}=${x.value}`).join('; ');
+  assert.equal((await vcall('items', {}, admCookie)).status, 200, 'admin can view too');
+  assert.equal((await aapi2('settings-put', { viewerPassword: '' })).status, 200);
+  assert.equal((await vcall('items', {}, vck)).status, 401, 'blank password locks existing viewer sessions out');
+  assert.equal((await aapi2('settings-put', { viewerPassword: 'volunteer1' })).status, 200);
+  console.log('✓ viewer password can be turned off instantly');
+
+  // the real page, in a fresh browser (no admin cookie)
+  const vctx = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+  await vctx.route('**/cdnjs.cloudflare.com/**', (r) => r.fulfill({ path: path.join(__dirname, '..', 'node_modules/jszip/dist/jszip.min.js'), contentType: 'text/javascript' }));
+  await vctx.route('**/fonts.g*apis.com/**', (r) => r.abort());
+  const vp = await vctx.newPage(); vp.on('pageerror', (e) => errs.push(e.message));
+  await vp.goto(B + '/view'); await vp.waitForSelector('#lf');
+  await vp.fill('#pw', 'wrong'); await vp.click('#lf button'); await vp.waitForSelector('#lerr:not([hidden])');
+  await vp.fill('#pw', 'volunteer1'); await vp.click('#lf button'); await vp.waitForSelector('.item');
+  assert.equal((await vp.$$('.item')).length, 3);
+  assert.equal(await vp.locator('#items input, #items textarea, #items button:has-text("Delete"), #items button:has-text("Hide")').count(), 0, 'no editing controls');
+  assert.equal(await vp.locator('a[href="/admin"]').count(), 0, 'no link to admin');
+  await vp.screenshot({ path: `${OUT}/view.png` });
+  await vp.click('.item .caret'); await vp.waitForSelector('.menu:not([hidden]) >> text=Original'); await vp.keyboard.press('Escape');
+  const [vdlz] = await Promise.all([vp.waitForEvent('download'), vp.click('#dlall .main')]);
+  const vzf = path.join(OUT, 'view.zip'); await vdlz.saveAs(vzf);
+  assert.equal(execFileSync('unzip', ['-Z1', vzf]).toString().trim().split('\n').length, 3);
+  await vp.evaluate(() => loadItems()); assert.equal((await vp.$$('.item')).length, 3);
+  await vp.click('#out'); await vp.waitForSelector('#lf:visible');
+  await vctx.close();
+  console.log('✓ /view page: sign in, view, preview, Download / Download all, sign out — no editing controls');
+
   // --- weekly auto-delete ---
   const old = '2026-11-02';
   fake.tables.items.push({ id: 'old1', week_key: old, kind: 'image', media_path: `${old}/old1.jpg`, original_path: `${old}/old1.png`, hidden: false, version: 1, sort_order: 1 });

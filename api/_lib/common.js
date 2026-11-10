@@ -16,6 +16,7 @@ const DEFAULTS = {
   showCaptions: true,
   transition: 'fade',
   uploadCode: '',
+  viewerPassword: '',    // password for the read-only volunteer page (/view); blank = page disabled
   emailSubject: 'New {type} uploaded: {title}', // placeholders: {type} {title} {file} {sunday} {description}
   emailIntro: '',        // optional message shown at the top of the alert email
   notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)

@@ -128,6 +128,7 @@ button.sm,.btn.sm{padding:9px 15px;font-size:.85rem;border-radius:14px}
 .item{padding:0;overflow:visible}
 .item .th{position:relative;aspect-ratio:16/9;background:#0b2a40;border-radius:24px 24px 0 0;overflow:hidden}
 .item .th img,.item .th video{width:100%;height:100%;object-fit:cover;display:block}
+.item .th a{display:block;height:100%}
 .item .th .tag{position:absolute;top:10px;left:10px;background:rgba(255,255,255,.8);color:var(--accent-strong);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .item .bd{padding:14px 16px 16px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}

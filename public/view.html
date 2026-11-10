@@ -1,0 +1,67 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Weekly Uploads · Files</title><link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css"></head><body>
+<div class="wrap wide">
+<div id="login" class="card" style="max-width:380px;margin:12vh auto" hidden>
+  <img class="logo" src="/logo.png" alt="" style="width:72px;height:72px;border-radius:50%;background:#fff;border:4px solid #fff;box-shadow:var(--shadow);display:block;margin:0 auto 10px">
+  <h1 style="text-align:center;font-size:1.6rem">Volunteer sign-in</h1>
+  <p class="muted" style="text-align:center;margin:.2rem 0 0">View and download this week's uploads.</p>
+  <form id="lf"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" autofocus>
+  <div id="lerr" class="msg bad" hidden></div><p><button style="width:100%">Sign in</button></p></form>
+</div>
+<div id="app" hidden>
+  <div class="top"><img class="logo" src="/logo.png" alt=""><h1 class="grow">Weekly Uploads <span class="mute" style="font-weight:500">· Files</span></h1>
+    <a class="iconbtn" href="/" title="Upload page" aria-label="Upload page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg></a>
+    <button class="ghost" id="out">Sign out</button></div>
+  <div class="row" style="margin:20px 0 16px"><select id="week" style="width:auto"></select><span class="grow"></span><span id="dlall"></span></div>
+  <div id="items" class="grid"></div><p id="empty" class="mute" hidden>Nothing has been uploaded for this Sunday yet.</p>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="/ui.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const api=async(a,body={})=>{const r=await fetch('/api/view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a,...body})});
+  if(r.status===401&&a!=='login'){show(false);throw new Error('Signed out')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
+const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+let week=null,timer,lastSig='';
+
+function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok;if(!ok){clearInterval(timer);lastSig=''}}
+$('#lf').onsubmit=async e=>{e.preventDefault();
+  try{await api('login',{password:$('#pw').value});$('#pw').value='';$('#lerr').hidden=true;boot()}catch(x){$('#lerr').hidden=false;$('#lerr').textContent=x.message}};
+$('#out').onclick=async()=>{await api('logout').catch(()=>{});show(false)};
+
+async function loadItems(){
+  const d=await api('items',{week});week=d.week;
+  const sig=JSON.stringify(d);if(sig===lastSig)return;     // only redraw when something changed
+  $('#week').replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`${fmt(w.sunday)}${w.key===d.current?' (this Sunday)':''} — ${w.count} file${w.count===1?'':'s'}`)));
+  $('#empty').hidden=d.items.length>0;$('#dlall').hidden=!d.items.length;
+  if(document.querySelector('.menu:not([hidden])'))return;
+  $('#items').replaceChildren(...d.items.map(card));
+  lastSig=sig;
+}
+function card(it){
+  const dl=which=>async()=>{try{const r=await api('download',{id:it.id,which});location.href=r.url}catch(e){alert(e.message)}};
+  const media=it.kind==='video'
+    ?h('video',{src:it.url,controls:true,preload:'metadata'})
+    :h('a',{href:it.url,target:'_blank',rel:'noopener',title:'Open full size'},h('img',{src:it.url,alt:it.title||it.originalName||''}));
+  const th=h('div',{className:'th'},media,h('span',{className:'tag'},it.kind==='video'?'Video':'Image'));
+  const meta=[it.originalName,it.srcW?it.srcW+'×'+it.srcH:''].filter(Boolean).join(' · ');
+  return h('div',{className:'card item'},th,h('div',{className:'bd'},
+    h('h3',{style:'margin:0 0 4px'},it.title||it.originalName||'Untitled'),
+    ...(it.description?[h('p',{style:'margin:0 0 6px'},it.description)]:[]),
+    h('div',{className:'small mute'},meta),
+    h('div',{className:'actions'},split('Download',dl('media'),it.hasOriginal?[['Screen-ready',dl('media')],['Original',dl('original')]]:null))));
+}
+$('#week').onchange=e=>{week=e.target.value;lastSig='';loadItems()};
+const downloadAll=which=>zipDownload(()=>api('download-all',{week,which}),t=>$('#dlst').textContent=t);
+$('#dlall').replaceChildren(split('Download all',()=>downloadAll('media'),[['Screen-ready (.zip)',()=>downloadAll('media')],['Originals (.zip)',()=>downloadAll('original')]],true),h('span',{id:'dlst',className:'small mute',style:'margin-left:10px'}));
+
+async function boot(){
+  const me=await (await fetch('/api/view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a:'me'})})).json();
+  show(me.viewer);if(!me.viewer)return;
+  await loadItems();
+  clearInterval(timer);timer=setInterval(()=>loadItems().catch(()=>{}),15000);
+}
+boot();
+</script></body></html>

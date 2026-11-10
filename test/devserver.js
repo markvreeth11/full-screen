@@ -13,7 +13,7 @@ function start(port) {
   process.env.ADMIN_PASSWORD = 'pw-test';
   process.env.CRON_SECRET = 'cronsecret';
   const handlers = {};
-  for (const n of ['info', 'code', 'upload', 'display', 'admin', 'cron']) handlers[n] = require(`../api/${n}.js`);
+  for (const n of ['info', 'code', 'upload', 'display', 'admin', 'view', 'cron']) handlers[n] = require(`../api/${n}.js`);
   return new Promise((resolve) => {
     const srv = http.createServer(async (req, res) => {
       const url = new URL(req.url, 'http://x');
