@@ -1,0 +1,6 @@
+{
+  "cleanUrls": true,
+  "outputDirectory": "public",
+  "functions": { "api/*.js": { "maxDuration": 30 } },
+  "crons": [{ "path": "/api/cron", "schedule": "0 9 * * *" }]
+}

@@ -1,38 +1,57 @@
 # Sunday Screen
 
-Weekly photo/video uploads for the church screen.
+Weekly photo/video uploads for the church screen. Static pages + a few serverless functions on **Vercel**, data and files in **Supabase**.
 
 | URL | Who | What |
 |---|---|---|
-| `/` | Congregation / volunteers | Drag & drop photos and videos, add an optional title + description |
-| `/display` | The screen/projector | Fullscreen slideshow of **this week's** uploads; one permanent link |
-| `/admin` | You | See/download every file, edit titles, reorder, hide, delete, change the background, settings |
-
-## Run it
-
-Requires Node 20+ and `ffmpeg`/`ffprobe` on the PATH.
-
-```bash
-npm install
-ADMIN_PASSWORD='choose-something' npm start   # PORT=3000 by default
-```
-
-If `ADMIN_PASSWORD` isn't set, a random one is printed on first start. Change it under Admin → Settings.
-Data (database, originals, screen-ready files) lives in `./data` (override with `DATA_DIR`) — back it up / mount it as a volume.
-Put it behind HTTPS (Caddy, nginx, Cloudflare Tunnel…) when exposing it to the internet.
+| `/` | Volunteers / congregation | Drag & drop photos and videos, optional title + description |
+| `/display` | The screen | Fullscreen slideshow of **this week's** uploads — one permanent link |
+| `/admin` | You | See/download every file, edit titles, reorder, hide, delete, change background, settings |
 
 ## How it works
 
-- **Weekly reset:** every upload is stamped with its week (Mon 00:00 → Sun 23:59 in your time zone; day/hour/zone are configurable). `/display` and `/` only ever use the current week, and the display reloads itself the moment the week changes — no cron needed. Past weeks stay in Admin for download, then are deleted after "keep past weeks" (default 8).
-- **1920×1080 fitting:** a file that is exactly 1920×1080 is used as-is (videos that are already H.264 are remuxed, not re-encoded). Anything else is scaled up *or* down (Lanczos, with a light sharpen when enlarging) to the largest size that fits, centred on the background template. Photos' EXIF rotation is respected.
-- **Background:** Admin → Background. Changing it re-renders everything already uploaded.
-- **Captions:** titles/descriptions are overlaid by the player (toggle in Settings), not burned into the files.
-- **Upload code:** optional shared code (Settings) so only your people can upload; leave blank for an open page.
+- **Weekly reset & auto-delete.** Every upload is stamped with its week (Mon 00:00 → Sun 23:59 in your time zone; configurable). The screen and upload page only ever use the current week, so nothing stale shows on Monday. A daily Vercel Cron job (`/api/cron`) then deletes finished weeks (database rows *and* files). Admin → Settings → "Keep finished weeks for" = `0` by default; raise it if you want past weeks to stay downloadable for a while.
+- **1920×1080 fitting happens in the uploader's browser** (`public/fit.js`). Exact 1920×1080 images are kept as-is; anything else is scaled up or down to the largest size that fits (in ≤2× steps with a light sharpen when enlarging) and centred on the background template. The untouched original is kept privately for you to download.
+- **Videos are not converted.** The player shows them over the background template, scaled to fit. Ask people to upload **MP4 (H.264)** — iPhone "HEVC" `.mov` files may not play on every screen PC.
+- **Background:** Admin → Background. Changing it re-fits this week's photos (keep the admin page open until it says *Done*).
+- **Upload code:** optional shared code (Settings) so only your people can upload.
+- Browsers never get database access. They receive short-lived signed upload URLs from `/api/upload`, which checks the upload code, size limits and open/closed status.
 
-## Screen setup tip
+## Set it up
 
-Browsers block autoplaying sound. For a kiosk PC, launch Chrome with
-`--kiosk --autoplay-policy=no-user-gesture-required http://your-server/display`;
-otherwise click once on the screen page to unmute/fullscreen.
+### 1. Supabase
+1. Create a project at supabase.com.
+2. **SQL Editor** → paste and run `supabase/schema.sql` (creates the tables and the `media` + `originals` storage buckets).
+3. **Project Settings → API**: copy the *Project URL*, the *anon* key and the *service_role* key.
 
-Note: upscaling is classical interpolation — it makes low-res photos fill the screen cleanly but can't invent detail. HEIC photos depend on the server's libvips build; if one fails, Admin shows the error and the original can still be downloaded.
+Free plan limits: **50 MB per file**, 1 GB storage. Fine for photos; compress longer videos, or upgrade to Pro and raise *Largest video allowed* in Admin → Settings.
+
+### 2. Vercel
+1. Import this GitHub repo as a new project (Framework preset: *Other*; no build command).
+2. Add these environment variables:
+
+| Name | Value |
+|---|---|
+| `SUPABASE_URL` | Project URL |
+| `SUPABASE_ANON_KEY` | anon key (public) |
+| `SUPABASE_SERVICE_ROLE_KEY` | service_role key — **secret** |
+| `ADMIN_PASSWORD` | the admin password you choose |
+| `CRON_SECRET` | any long random string (lets only Vercel trigger the cleanup) |
+| `SESSION_SECRET` | optional long random string (signs login cookies) |
+
+3. Deploy. Add your domain under *Settings → Domains* (HTTPS is automatic).
+
+### 3. Share
+- Bookmark/send `https://your-domain/` to uploaders.
+- Open `https://your-domain/display` on the screen PC. For sound: launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`, or click the page once.
+- First thing: open `/admin` → Settings and set church name, time zone and (recommended) an upload code.
+
+## Develop / test
+
+```bash
+npm install
+npm test        # needs FIXTURES=<folder with small.png exact.png vid.mp4 newbg.png>, Playwright, ffprobe
+vercel dev      # run the real thing locally with a .env.local containing the variables above
+```
+
+`npm test` runs the real pages in Chromium against an in-memory fake of Supabase (`test/`).

@@ -11,14 +11,13 @@
   <div class="tabs"><button data-t="files" class="on">Files</button><button data-t="bg">Background</button><button data-t="set">Settings</button></div>
 
   <section id="t-files">
-    <div class="row"><select id="week" style="width:auto"></select><span class="mute grow" id="range"></span>
-      <a class="btn ghost sm" id="zipP">Download screen-ready (.zip)</a><a class="btn ghost sm" id="zipO">Download originals (.zip)</a></div>
+    <div class="row"><select id="week" style="width:auto"></select><span class="mute grow" id="range"></span></div>
     <div id="items" class="grid" style="margin-top:16px"></div><p id="empty" class="mute" hidden>Nothing uploaded for this week yet.</p>
   </section>
 
   <section id="t-bg" hidden><div class="card">
     <h2>Background template</h2>
-    <p class="mute">Photos and videos that aren't exactly 1920×1080 are scaled to fit and centred on this background. Changing it re-renders everything already uploaded.</p>
+    <p class="mute">Photos and videos that aren't exactly 1920×1080 are scaled to fit and centred on this background. After you change it, this week's already-uploaded photos are re-fitted onto it (keep this page open until it says done).</p>
     <img id="bgp" class="bgprev" alt="Current background">
     <div class="row" style="margin-top:14px"><input type="file" id="bgf" accept="image/*" hidden><button id="bgb">Upload new background…</button><button class="ghost" id="bgr">Reset to default</button><span id="bgs" class="mute"></span></div>
     <p class="small mute">Best at 1920×1080 (16:9). Other sizes are cropped to fill.</p>
@@ -31,96 +30,116 @@
       <div><label>Seconds per image</label><input type="number" id="imageDuration" min="2" max="600"></div>
       <div><label>New week starts on</label><select id="rolloverDay"></select></div>
       <div><label>…at (hour, 0–23)</label><input type="number" id="rolloverHour" min="0" max="23"></div>
-      <div><label>Keep past weeks for (weeks)</label><input type="number" id="keepWeeks" min="1" max="104"></div>
-      <div><label>Max upload size (MB)</label><input type="number" id="maxUploadMB" min="10"></div>
+      <div><label>Keep finished weeks for (weeks)</label><input type="number" id="keepPastWeeks" min="0" max="104"></div>
+      <div><label>Largest video allowed (MB)</label><input type="number" id="maxVideoMB" min="5"></div>
       <div><label>Transition</label><select id="transition"><option value="fade">Fade</option><option value="none">None</option></select></div>
       <div><label>Upload code <span class="mute">(blank = no code)</span></label><input type="text" id="uploadCode" autocomplete="off"></div>
     </div>
+    <p class="small mute">"Keep finished weeks" = 0 means everything is deleted automatically the morning after the week ends. The screen always shows only the current week.</p>
     <label><input type="checkbox" id="showCaptions"> Show titles &amp; descriptions on screen</label>
     <label><input type="checkbox" id="uploadsOpen"> Uploads open</label>
     <p class="small mute" id="wk"></p>
-    <p class="row"><button id="save">Save settings</button><span id="saved" class="mute"></span></p>
-    <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
-    <h3>Change admin password</h3>
-    <div class="two"><div><label>Current</label><input type="password" id="pc" autocomplete="current-password"></div><div><label>New (8+ characters)</label><input type="password" id="pn" autocomplete="new-password"></div></div>
-    <p class="row"><button class="ghost" id="chpw">Change password</button><span id="pws" class="mute"></span></p>
+    <p class="row"><button id="save">Save settings</button><button class="ghost" id="purge">Delete finished weeks now</button><span id="saved" class="mute"></span></p>
+    <p class="small mute">The admin password is set in the host's environment variables (<code>ADMIN_PASSWORD</code>).</p>
   </div></section>
 </div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/fit.js"></script>
 <script>
 const $=s=>document.querySelector(s);
 const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x in e&&x!=='style'?e[x]=v:e.setAttribute(x,v);e.append(...k);return e};
-const api=async(u,m='GET',b)=>{const r=await fetch('/api/admin'+u,{method:m,headers:b&&!(b instanceof FormData)?{'Content-Type':'application/json'}:{},body:b instanceof FormData?b:b&&JSON.stringify(b)});
-  if(r.status===401){show(false);throw new Error('auth')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
+const api=async(a,body={})=>{const r=await fetch('/api/admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a,...body})});
+  if(r.status===401&&a!=='login'){show(false);throw new Error('Signed out')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
 const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'});
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-let week=null,timer;
+const KEYS=['churchName','timezone','imageDuration','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','transition','uploadCode'];
+let week=null,timer,SB;
 
 function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok;if(!ok)clearInterval(timer)}
 $('#lf').onsubmit=async e=>{e.preventDefault();
-  const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#pw').value})});
-  if(r.ok){$('#pw').value='';boot()}else{$('#lerr').hidden=false;$('#lerr').textContent=(await r.json()).error}};
-$('#out').onclick=async()=>{await fetch('/api/admin/logout',{method:'POST'});show(false)};
+  try{await api('login',{password:$('#pw').value});$('#pw').value='';$('#lerr').hidden=true;boot()}catch(x){$('#lerr').hidden=false;$('#lerr').textContent=x.message}};
+$('#out').onclick=async()=>{await api('logout');show(false)};
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
   for(const t of['files','bg','set'])$('#t-'+t).hidden=t!==b.dataset.t});
 
 async function loadItems(){
-  const d=await api('/items'+(week?'?week='+week:''));week=d.week;
+  const d=await api('items',{week});week=d.week;
   const sel=$('#week');sel.replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`Week of ${fmt(w.key)}${w.key===d.current?' (this week)':''} — ${w.count} file${w.count===1?'':'s'}`)));
-  $('#range').textContent=`${fmt(d.range.start)} – ${fmt(d.range.end)}`+(week===d.current?' · live on the screen':' · archived');
-  $('#zipP').href=`/api/admin/weeks/${week}/zip`;$('#zipO').href=`/api/admin/weeks/${week}/zip?which=original`;
+  $('#range').textContent=`${fmt(d.range.start)} – ${fmt(d.range.end)}`+(week===d.current?' · live on the screen':' · finished (not shown)');
   $('#empty').hidden=d.items.length>0;
   const box=$('#items');
-  // don't rebuild while someone is typing in a card
   if(box.contains(document.activeElement)&&document.activeElement.matches('input,textarea'))return;
   box.replaceChildren(...d.items.map((it,i)=>card(it,i,d.items.length,week===d.current)));
 }
 function card(it,i,n,live){
-  const stat=it.status==='ready'?(it.hidden?'Hidden':it.kind==='video'?'Video':'Image'):it.status==='error'?'Error':'Processing…';
-  const th=h('div',{className:'th'},h('img',{src:it.status==='ready'||it.status==='error'?`/thumb/${it.id}?v=${it.version}`:'',alt:''}),h('span',{className:'tag'+(it.status==='error'?' bad':'')},stat));
+  const th=h('div',{className:'th'},
+    it.kind==='video'?h('video',{src:it.url+'#t=0.5',preload:'metadata',muted:true,style:'width:100%;height:100%;object-fit:cover;display:block'}):h('img',{src:it.url,alt:''}),
+    h('span',{className:'tag'},it.hidden?'Hidden':it.kind==='video'?'Video':'Image'));
   const t=h('input',{type:'text',value:it.title,placeholder:'Title',maxLength:120}),d=h('textarea',{value:it.description,placeholder:'Description',maxLength:400,rows:2});
-  const save=()=>api('/items/'+it.id,'PATCH',{title:t.value,description:d.value}).catch(()=>{});
+  const save=()=>api('update',{id:it.id,title:t.value,description:d.value}).catch(()=>{});
   t.onchange=d.onchange=save;
-  const meta=h('div',{className:'small mute'},`${it.originalName} · ${it.srcW?it.srcW+'×'+it.srcH:''}${it.fullFrame===false?' · fitted on background':it.fullFrame?' · exact fit':''}${it.uploader?' · by '+it.uploader:''}`);
+  const meta=h('div',{className:'small mute'},`${it.originalName||''} · ${it.srcW?it.srcW+'×'+it.srcH:''}${it.fullFrame===false?' · fitted on background':it.fullFrame?' · exact fit':''}${it.uploader?' · by '+it.uploader:''}`);
   const dur=it.kind==='image'?h('input',{type:'number',min:2,max:600,placeholder:'sec',value:it.customDuration||'',title:'Seconds on screen (blank = default)',style:'width:72px'}):null;
-  if(dur)dur.onchange=()=>api('/items/'+it.id,'PATCH',{customDuration:dur.value}).catch(()=>{});
+  if(dur)dur.onchange=()=>api('update',{id:it.id,customDuration:dur.value}).catch(()=>{});
   const btn=(l,f,c='ghost sm',dis=false)=>h('button',{className:c,onclick:f,disabled:dis},l);
+  const dl=which=>async()=>{const r=await api('download',{id:it.id,which});location.href=r.url};
+  async function mv(dir){await api('move',{id:it.id,dir});loadItems()}
   const act=h('div',{className:'actions'},
-    ...(live?[btn('↑',()=>mv('up'),'ghost sm',i===0),btn('↓',()=>mv('down'),'ghost sm',i===n-1)]:[]),
-    ...(live?[btn(it.hidden?'Show':'Hide',async()=>{await api('/items/'+it.id,'PATCH',{hidden:!it.hidden});loadItems()})]:[]),
-    h('a',{className:'btn ghost sm',href:`/api/admin/items/${it.id}/download`},'Screen-ready'),
-    h('a',{className:'btn ghost sm',href:`/api/admin/items/${it.id}/download?which=original`},'Original'),
-    ...(it.status==='error'?[btn('Retry',async()=>{await api(`/items/${it.id}/reprocess`,'POST',{});loadItems()})]:[]),
-    btn('Delete',async()=>{if(confirm('Delete this file permanently?')){await api('/items/'+it.id,'DELETE');loadItems()}},'danger sm'));
-  async function mv(dir){await api(`/items/${it.id}/move`,'POST',{dir});loadItems()}
-  return h('div',{className:'card item'+(it.hidden?' hid':'')},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{className:'row',style:'margin-top:6px'},meta,...(dur?[h('span',{className:'grow'}),h('span',{className:'small mute'},'Show for'),dur]:[])),act,it.error?h('div',{className:'msg bad small'},it.error):''));
+    ...(live?[btn('↑',()=>mv('up'),'ghost sm',i===0),btn('↓',()=>mv('down'),'ghost sm',i===n-1),
+      btn(it.hidden?'Show':'Hide',async()=>{await api('update',{id:it.id,hidden:!it.hidden});loadItems()})]:[]),
+    btn(it.kind==='video'?'Download':'Screen-ready',dl('media')),
+    ...(it.hasOriginal?[btn('Original',dl('original'))]:[]),
+    btn('Delete',async()=>{if(confirm('Delete this file permanently?')){await api('delete',{id:it.id});loadItems()}},'danger sm'));
+  return h('div',{className:'card item'+(it.hidden?' hid':'')},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{className:'row',style:'margin-top:6px'},meta,...(dur?[h('span',{className:'grow'}),h('span',{className:'small mute'},'Show for'),dur]:[])),act));
 }
 $('#week').onchange=e=>{week=e.target.value;loadItems()};
 
 async function loadSettings(){
-  const s=await api('/settings');
-  $('#bgp').src=s.bg;
-  for(const k of['churchName','timezone','imageDuration','rolloverDay','rolloverHour','keepWeeks','maxUploadMB','transition','uploadCode'])$('#'+k).value=s[k];
+  const s=await api('settings-get');$('#bgp').src=s.bg;
+  for(const k of KEYS)$('#'+k).value=s[k];
   $('#showCaptions').checked=s.showCaptions;$('#uploadsOpen').checked=s.uploadsOpen;
-  $('#wk').textContent=`The screen is currently showing the week starting ${s.currentWeek}. On the new-week moment, the screen and upload page reset automatically; last week's files stay in the Files tab for download.`;
+  $('#wk').textContent=`The screen is currently showing the week starting ${s.currentWeek}.`;
 }
 $('#rolloverDay').replaceChildren(...DAYS.map((d,i)=>h('option',{value:i},d)));
 try{$('#tzs').replaceChildren(...Intl.supportedValuesOf('timeZone').map(z=>h('option',{value:z})))}catch{}
 $('#save').onclick=async()=>{
-  const b={};for(const k of['churchName','timezone','imageDuration','rolloverDay','rolloverHour','keepWeeks','maxUploadMB','transition','uploadCode'])b[k]=$('#'+k).value;
+  const b={};for(const k of KEYS)b[k]=$('#'+k).value;
   b.showCaptions=$('#showCaptions').checked;b.uploadsOpen=$('#uploadsOpen').checked;
-  try{await api('/settings','PUT',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
+  try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
   setTimeout(()=>$('#saved').textContent='',3000)};
-$('#chpw').onclick=async()=>{try{await api('/password','POST',{current:$('#pc').value,next:$('#pn').value});$('#pws').textContent='Password changed ✓';$('#pc').value=$('#pn').value=''}catch(e){$('#pws').textContent=e.message}};
+$('#purge').onclick=async()=>{if(!confirm('Delete all files from finished weeks now?'))return;
+  try{const r=await api('purge');$('#saved').textContent=`Cleaned up (${r.files} files).`;loadItems()}catch(e){$('#saved').textContent=e.message}};
+
+async function sbClient(){if(SB)return SB;const i=await (await fetch('/api/info')).json();SB=supabase.createClient(i.supabaseUrl,i.supabaseKey||'none',{auth:{persistSession:false}});return SB}
+async function rerender(say){
+  const {ids}=await api('rerender-list');if(!ids.length)return;
+  const info=await (await fetch('/api/info')).json(),sb=await sbClient(),bg=await Fit.loadBg(info.bg);
+  let n=0;
+  for(const id of ids){
+    say(`Re-fitting photos… ${++n}/${ids.length}`);
+    const r=await api('rerender-start',{id});
+    const src=await (await fetch(r.original)).blob();
+    const out=await Fit.fitImage(src,bg);
+    const {error}=await sb.storage.from(r.upload.bucket).uploadToSignedUrl(r.upload.path,r.upload.token,out.blob,{contentType:'image/jpeg',upsert:true});
+    if(error)throw new Error(error.message);
+    await api('rerender-done',{id});
+  }
+}
 $('#bgb').onclick=()=>$('#bgf').click();
-$('#bgf').onchange=async e=>{const f=e.target.files[0];if(!f)return;$('#bgs').textContent='Uploading…';
-  const fd=new FormData();fd.append('file',f);try{const r=await api('/background','POST',fd);$('#bgp').src=r.bg;$('#bgs').textContent='Updated — existing files are being re-rendered.';loadItems()}catch(x){$('#bgs').textContent=x.message}e.target.value=''};
-$('#bgr').onclick=async()=>{if(!confirm('Reset to the default autumn background?'))return;const r=await api('/background/reset','POST',{});$('#bgp').src=r.bg;loadItems()};
+$('#bgf').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const say=t=>$('#bgs').textContent=t;
+  try{say('Preparing…');const blob=await Fit.makeBackground(f);const sb=await sbClient();
+    const s=await api('bg-sign');const {error}=await sb.storage.from(s.bucket).uploadToSignedUrl(s.path,s.token,blob,{contentType:'image/jpeg'});if(error)throw new Error(error.message);
+    const r=await api('bg-commit',{path:s.path});$('#bgp').src=r.bg;
+    await rerender(say);say('Done ✓');loadItems()}catch(x){say('Failed: '+x.message)}};
+$('#bgr').onclick=async()=>{if(!confirm('Reset to the default autumn background?'))return;const say=t=>$('#bgs').textContent=t;
+  try{const r=await api('bg-reset');$('#bgp').src=r.bg;await rerender(say);say('Done ✓');loadItems()}catch(x){say('Failed: '+x.message)}};
 
 async function boot(){
-  const me=await (await fetch('/api/admin/me')).json();show(me.admin);if(!me.admin)return;
+  const me=await (await fetch('/api/admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a:'me'})})).json();
+  show(me.admin);if(!me.admin)return;
   await Promise.all([loadItems(),loadSettings()]);
-  clearInterval(timer);timer=setInterval(()=>{if(!$('#t-files').hidden)loadItems().catch(()=>{})},4000);
+  clearInterval(timer);timer=setInterval(()=>{if(!$('#t-files').hidden)loadItems().catch(()=>{})},8000);
 }
 boot();
 </script></body></html>
