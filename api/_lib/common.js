@@ -24,6 +24,7 @@ const DEFAULTS = {
   bgVersion: 1,
 };
 const MAX_IMAGE_MB = 40;
+const MAX_NOTIFY = 20; // email addresses that can be alerted per upload
 
 async function getSettings() {
   const { data, error } = await sb().from('settings').select('data').eq('id', 1).maybeSingle();
@@ -128,7 +129,7 @@ const siteUrl = (req) => {
 // Never throws and never blocks an upload from succeeding.
 async function notifyUpload(s, req, it) {
   try {
-    const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, 5);
+    const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, MAX_NOTIFY);
     if (!to.length) return;
     const sunday = sundayOf(it.week_key), when = new Date(sunday + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
     const label = oneLine(it.title) || oneLine(it.original_name) || `a ${it.kind}`;
@@ -168,7 +169,7 @@ async function purgeOld(s) {
 }
 
 module.exports = {
-  sb, DEFAULTS, MAX_IMAGE_MB, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
+  sb, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
   wrap, exists, removeObjects, purgeOld, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };

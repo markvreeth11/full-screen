@@ -153,6 +153,14 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
     return ctx.request.post(B + '/api/upload', { data: { action: 'done', ticket: sg.ticket, title, description: 'desc <b>bold</b>', originalName: 'pic.png', srcW: 10, srcH: 10, fullFrame: false } });
   };
   assert.equal((await aapi2('settings-put', { notifyEmail: 'not-an-email' })).status, 400);
+  const six = Array.from({ length: 6 }, (_, i) => `person${i + 1}@example.com`).join(', ');
+  assert.equal((await aapi2('settings-put', { notifyEmail: Array.from({ length: 21 }, (_, i) => `p${i}@example.com`).join(',') })).status, 400, 'more than 20 rejected');
+  assert.equal((await aapi2('settings-put', { notifyEmail: six })).status, 200, '6 addresses accepted');
+  assert.equal((await aapi2('settings-get')).body.notifyEmail, six);
+  const nSix = emails.length; assert.equal((await uploadViaApi('Six')).status(), 200);
+  assert.equal(emails.length, nSix + 1); assert.deepEqual(emails.at(-1).to, six.split(', '), 'all 6 are alerted');
+  console.log('✓ six recipients all get the alert');
+  for (const it of fake.tables.items.filter((i) => i.title === 'Six')) await aapi2('delete', { id: it.id });
   assert.equal((await aapi2('settings-put', { notifyEmail: 'me@example.com' })).status, 200);
   assert.equal((await aapi2('notify-test', { email: 'you@example.com' })).status, 200);
   assert.deepEqual(emails.at(-1).to, ['you@example.com']);

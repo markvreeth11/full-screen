@@ -47,7 +47,7 @@ Uses [Resend](https://resend.com) (free: 100 emails/day).
 2. Add it in Vercel as `RESEND_API_KEY` and redeploy.
 3. In **Admin → Settings**, type your email under *Email me when a file is uploaded*, click **Send test email**, then **Save settings**.
 
-Until you verify your own domain in Resend, alerts can only go to the email address you signed up with. To send to others (or from your own address), verify a domain in Resend and set `NOTIFY_FROM` in Vercel, e.g. `Weekly Uploads <alerts@yourchurch.org>`.
+Up to 20 addresses can be alerted (comma-separated). **Alerting more than one person requires a verified domain:** until you verify your own domain in Resend, alerts can only go to the email address you signed up with. Verify a domain in Resend (Domains → Add Domain → add the DNS records it shows) and set `NOTIFY_FROM` in Vercel, e.g. `Weekly Uploads <alerts@yourchurch.org>`. Recipients can see each other's addresses.
 
 ### 4. Share
 - Bookmark/send `https://your-domain/` to uploaders.
