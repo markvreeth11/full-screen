@@ -41,7 +41,15 @@ Free plan limits: **50 MB per file**, 1 GB storage. Fine for photos; compress lo
 
 3. Deploy. Add your domain under *Settings → Domains* (HTTPS is automatic).
 
-### 3. Share
+### 3. Email alerts (optional)
+Uses [Resend](https://resend.com) (free: 100 emails/day).
+1. Create a Resend account with the email address that should get the alerts → **API Keys → Create API Key**.
+2. Add it in Vercel as `RESEND_API_KEY` and redeploy.
+3. In **Admin → Settings**, type your email under *Email me when a file is uploaded*, click **Send test email**, then **Save settings**.
+
+Until you verify your own domain in Resend, alerts can only go to the email address you signed up with. To send to others (or from your own address), verify a domain in Resend and set `NOTIFY_FROM` in Vercel, e.g. `Weekly Uploads <alerts@yourchurch.org>`.
+
+### 4. Share
 - Bookmark/send `https://your-domain/` to uploaders.
 - Open `https://your-domain/display` on the screen PC. For sound: launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`, or click the page once.
 - First thing: open `/admin` → Settings and set church name, time zone and (recommended) an upload code.

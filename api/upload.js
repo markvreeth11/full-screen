@@ -53,6 +53,7 @@ module.exports = c.wrap(async (req, res) => {
       sort_order: ((last && last[0] && last[0].sort_order) || 0) + 1, version: Date.now(),
     });
     if (error) throw error;
+    await c.notifyUpload(s, req, { week_key: week, kind: t.kind, title: c.clip(b.title, 120), description: c.clip(b.description, 400), original_name: c.clip(b.originalName, 200) });
     return res.json({ id: t.id });
   }
   res.status(400).json({ error: 'Bad request' });

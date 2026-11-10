@@ -90,6 +90,14 @@ module.exports = c.wrap(async (req, res) => {
       }
       return res.json({ zipName: `Weekly Uploads - ${c.sundayOf(wk)}${b.which === 'original' ? ' (originals)' : ''}.zip`, files });
     }
+    case 'notify-test': {
+      const to = c.parseEmails(b.email).filter((e) => c.EMAIL_RE.test(e));
+      if (!to.length) return res.status(400).json({ error: 'Type a valid email address first.' });
+      const r = await c.sendEmail({ to: to.slice(0, 5), subject: 'Weekly Uploads: test email',
+        text: 'This is a test. You will get an email like this whenever a file is uploaded.',
+        html: '<p style="font-family:-apple-system,Segoe UI,Arial,sans-serif">This is a test. You will get an email like this whenever a file is uploaded.</p>' });
+      return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: r.error });
+    }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {
       const n = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' ? Math.min(hi, Math.max(lo, +v)) : d);
@@ -105,6 +113,11 @@ module.exports = c.wrap(async (req, res) => {
       if ('transition' in b) s.transition = b.transition === 'none' ? 'none' : 'fade';
       if ('uploadCode' in b) s.uploadCode = c.clip(b.uploadCode, 100);
       if ('uploadsOpen' in b) s.uploadsOpen = !!b.uploadsOpen;
+      if ('notifyEmail' in b) {
+        const list = c.parseEmails(b.notifyEmail);
+        if (list.length > 5 || list.some((e) => !c.EMAIL_RE.test(e))) return res.status(400).json({ error: 'Please enter a valid email address (up to 5, separated by commas).' });
+        s.notifyEmail = list.join(', ');
+      }
       if ('keepPastWeeks' in b) s.keepPastWeeks = Math.round(n(b.keepPastWeeks, 0, 104, s.keepPastWeeks));
       if ('maxVideoMB' in b) s.maxVideoMB = Math.round(n(b.maxVideoMB, 5, 5000, s.maxVideoMB));
       await c.saveSettings(s);

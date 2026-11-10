@@ -13,6 +13,16 @@ const probe = (buf) => {
   const f = path.join(OUT, 'probe.bin'); fs.writeFileSync(f, buf);
   return execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', f]).toString().trim();
 };
+// capture outgoing emails (no real network); a recipient containing "fail" simulates Resend rejecting the request
+const emails = [], realFetch = global.fetch;
+global.fetch = (u, o) => {
+  if (String(u).startsWith('https://api.resend.com/')) {
+    const body = JSON.parse(o.body); emails.push(body);
+    return Promise.resolve(/fail/.test(body.to.join()) ? { ok: false, status: 403, text: async () => JSON.stringify({ message: 'domain not verified' }) } : { ok: true, status: 200, text: async () => '{}' });
+  }
+  return realFetch(u, o);
+};
+process.env.RESEND_API_KEY = 're_test';
 const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'content-type': 'application/json', ...h }, body: JSON.stringify(b) });
 
 (async () => {
@@ -134,6 +144,33 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const tooBig = await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'video', ext: 'mp4', size: 80 * 1048576 } });
   assert.equal(tooBig.status(), 400);
   console.log('✓ oversize video rejected (50 MB limit)');
+
+  // --- email alerts ---
+  const aapi2 = (a, b = {}) => ad.evaluate(async ([a, b]) => { const r = await fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a, ...b }) }); return { status: r.status, body: await r.json() }; }, [a, b]);
+  const uploadViaApi = async (title) => {
+    const sg = await (await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'image', ext: 'png', outExt: 'png', size: 1234 } })).json();
+    for (const u of sg.uploads) fake.buckets[u.bucket].set(u.path, { data: Buffer.from('x') });
+    return ctx.request.post(B + '/api/upload', { data: { action: 'done', ticket: sg.ticket, title, description: 'desc <b>bold</b>', originalName: 'pic.png', srcW: 10, srcH: 10, fullFrame: false } });
+  };
+  assert.equal((await aapi2('settings-put', { notifyEmail: 'not-an-email' })).status, 400);
+  assert.equal((await aapi2('settings-put', { notifyEmail: 'me@example.com' })).status, 200);
+  assert.equal((await aapi2('notify-test', { email: 'you@example.com' })).status, 200);
+  assert.deepEqual(emails.at(-1).to, ['you@example.com']);
+  assert.equal((await aapi2('notify-test', { email: 'fail@example.com' })).body.error, 'domain not verified');
+  const n0 = emails.length, xssTitle = '<script>alert(1)</script> Hello\nWorld';
+  const r1 = await uploadViaApi(xssTitle); assert.equal(r1.status(), 200);
+  assert.equal(emails.length, n0 + 1, 'one email per upload');
+  const em = emails.at(-1);
+  assert.deepEqual(em.to, ['me@example.com']); assert.match(em.subject, /^New image uploaded: /); assert.ok(!/[\r\n]/.test(em.subject), 'subject is one line');
+  assert.ok(em.html.includes('&lt;script&gt;') && !em.html.includes('<script>'), 'HTML is escaped');
+  assert.ok(em.html.includes('desc &lt;b&gt;bold&lt;/b&gt;') && /\/admin/.test(em.text) && /Sunday, November 15/.test(em.text), 'email has details + admin link');
+  console.log('✓ upload sends one email (escaped, one-line subject, admin link)');
+  await aapi2('settings-put', { notifyEmail: 'fail@example.com' });
+  const r2 = await uploadViaApi('Second'); assert.equal(r2.status(), 200, 'upload succeeds even if the email service rejects the email');
+  await aapi2('settings-put', { notifyEmail: '' });
+  const n1 = emails.length; const r3 = await uploadViaApi('Third'); assert.equal(r3.status(), 200); assert.equal(emails.length, n1, 'no email when blank');
+  console.log('✓ email failures never block uploads; blank = no emails');
+  for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
   // --- weekly auto-delete ---
   const old = '2026-11-02';

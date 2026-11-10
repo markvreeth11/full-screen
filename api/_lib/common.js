@@ -16,6 +16,7 @@ const DEFAULTS = {
   showCaptions: true,
   transition: 'fade',
   uploadCode: '',
+  notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)
   uploadsOpen: true,
   keepPastWeeks: 0,      // 0 = files are deleted as soon as the week is over
   maxVideoMB: 50,        // Supabase free plan limit; raise on Pro
@@ -93,6 +94,56 @@ async function removeObjects(bucket, paths) {
   if (paths.length) await sb().storage.from(bucket).remove(paths);
 }
 
+// ---------- email alerts (Resend: https://resend.com) ----------
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
+const parseEmails = (v) => String(v || '').split(/[,;\s]+/).filter(Boolean);
+const oneLine = (v) => String(v || '').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+
+async function sendEmail({ to, subject, html, text }) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, error: 'RESEND_API_KEY is not set in Vercel yet' };
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: process.env.NOTIFY_FROM || 'Weekly Uploads <onboarding@resend.dev>', to, subject, html, text }),
+    });
+    if (!r.ok) {
+      const body = await r.text().catch(() => ''); console.error('email failed', r.status, body);
+      let msg = ''; try { msg = JSON.parse(body).message; } catch {}
+      return { ok: false, error: msg || `Email service returned ${r.status}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error('email error', e.message);
+    return { ok: false, error: e.name === 'AbortError' ? 'Email service timed out' : e.message };
+  } finally { clearTimeout(timer); }
+}
+const siteUrl = (req) => {
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  return host ? `${req.headers['x-forwarded-proto'] || 'https'}://${host}` : '';
+};
+// Never throws and never blocks an upload from succeeding.
+async function notifyUpload(s, req, it) {
+  try {
+    const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, 5);
+    if (!to.length) return;
+    const sunday = sundayOf(it.week_key), when = new Date(sunday + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+    const label = oneLine(it.title) || oneLine(it.original_name) || `a ${it.kind}`;
+    const admin = siteUrl(req) + '/admin';
+    const rows = [['Type', it.kind === 'video' ? 'Video' : 'Image'], ['Title', it.title], ['Description', it.description], ['File', it.original_name], ['For', `Sunday, ${when}`]].filter((r) => r[1]);
+    await sendEmail({
+      to, subject: `New ${it.kind} uploaded: ${label}`.slice(0, 150),
+      text: rows.map((r) => `${r[0]}: ${r[1]}`).join('\n') + `\n\nView and download: ${admin}`,
+      html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px"><h2 style="margin:0 0 12px">New ${it.kind} uploaded</h2>` +
+        rows.map((r) => `<p style="margin:4px 0"><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('') +
+        `<p style="margin:18px 0"><a href="${esc(admin)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">View in admin</a></p></div>`,
+    });
+  } catch (e) { console.error('notifyUpload', e.message); }
+}
+
 // Delete everything for weeks that are older than the retention window.
 async function purgeOld(s) {
   const keep = Math.max(0, Math.round(+s.keepPastWeeks || 0));
@@ -119,5 +170,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, DEFAULTS, MAX_IMAGE_MB, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld,
+  wrap, exists, removeObjects, purgeOld, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };
