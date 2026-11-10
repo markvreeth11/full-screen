@@ -13,17 +13,6 @@ const probe = (buf) => {
   const f = path.join(OUT, 'probe.bin'); fs.writeFileSync(f, buf);
   return execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', f]).toString().trim();
 };
-// capture the "start the converter" calls the site makes to GitHub (no real network)
-const dispatched = [], realFetch = global.fetch;
-global.fetch = (u, o) => (String(u).startsWith('https://api.github.com')
-  ? (dispatched.push({ u: String(u), o }), Promise.resolve({ ok: true, status: 204, text: async () => '' }))
-  : realFetch(u, o));
-process.env.GH_DISPATCH_TOKEN = 'ghtok'; process.env.GITHUB_REPO = 'owner/repo';
-const probeFull = (buf) => {
-  const f = path.join(OUT, 'probe2.bin'); fs.writeFileSync(f, buf);
-  const j = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate:format=format_name', '-of', 'json', f]).toString());
-  return { v: j.streams.find((x) => x.codec_type === 'video'), a: j.streams.find((x) => x.codec_type === 'audio'), fmt: j.format.format_name };
-};
 const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'content-type': 'application/json', ...h }, body: JSON.stringify(b) });
 
 (async () => {
@@ -51,10 +40,6 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.ok(await up.$('a[href="/admin"]'), 'admin icon on upload page');
   await up.screenshot({ path: `${OUT}/up-done.png` });
   console.log('✓ uploaded 3 files through the real upload page');
-  assert.equal(dispatched.length, 1, 'video upload asked GitHub to start the converter');
-  assert.ok(dispatched[0].u.endsWith('/repos/owner/repo/actions/workflows/convert-videos.yml/dispatches'));
-  assert.equal(dispatched[0].o.headers.Authorization, 'Bearer ghtok');
-  console.log('✓ video upload triggers the GitHub converter');
 
   // --- public display feed ---
   const d = await (await fetch(B + '/api/display')).json();
@@ -90,37 +75,6 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await ad.$$('.item')).length, 3);
   console.log('✓ admin login (bad password rejected) + file list');
   await ad.screenshot({ path: `${OUT}/admin.png` });
-
-  // ---- video conversion: 1920x1080 @ 59.94 .mp4 ----
-  const vrow = fake.tables.items.find((i) => i.kind === 'video'), convKey = `${vrow.week_key}/${vrow.id}-1080p5994.mp4`;
-  const aapi = (a, b = {}) => ad.evaluate(async ([a, b]) => { const r = await fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a, ...b }) }); return { status: r.status, body: await r.json() }; }, [a, b]);
-  assert.equal((await aapi('items')).body.items.find((i) => i.id === vrow.id).dlState, 'working');
-  assert.equal((await aapi('download', { id: vrow.id })).status, 409, 'default video download waits for conversion');
-  assert.equal((await aapi('download-all', { week: vrow.week_key, which: 'media' })).status, 409, 'zip waits for conversion');
-  assert.equal((await aapi('download', { id: vrow.id, which: 'original' })).status, 200, 'original is always available');
-  assert.ok(!(await (await fetch(B + '/api/display')).json()).items.find((i) => i.kind === 'video').url.includes('1080p5994'), 'screen plays the upload until converted');
-  await ad.waitForSelector('text=Converting to 1080p');
-  const worker = require('../scripts/convert-videos');
-  assert.deepEqual(await worker.main(fake.client, { check: true }), { pending: 1 });
-  const wr = await worker.main(fake.client); assert.equal(wr.done, 1); assert.equal(wr.failed, 0);
-  const pf = probeFull(fake.buckets.media.get(convKey).data);
-  assert.equal(`${pf.v.width}x${pf.v.height}`, '1920x1080'); assert.equal(pf.v.r_frame_rate, '60000/1001'); assert.equal(pf.v.codec_name, 'h264');
-  assert.ok(pf.a && pf.a.codec_name === 'aac', 'audio kept'); assert.ok(/mp4/.test(pf.fmt), 'mp4 container');
-  console.log(`✓ converter output: ${pf.v.width}x${pf.v.height} @ ${pf.v.r_frame_rate} (59.94) ${pf.v.codec_name}/${pf.a.codec_name} .mp4`);
-  assert.deepEqual(await worker.main(fake.client, { check: true }), { pending: 0 }, 'nothing left to convert');
-  assert.equal((await aapi('items')).body.items.find((i) => i.id === vrow.id).dlState, 'ready');
-  assert.ok((await aapi('download', { id: vrow.id })).body.url.includes('1080p5994.mp4'), 'default Download = converted mp4');
-  assert.ok(!(await aapi('download', { id: vrow.id, which: 'original' })).body.url.includes('1080p5994'), 'Original = the upload');
-  assert.ok((await (await fetch(B + '/api/display')).json()).items.find((i) => i.kind === 'video').url.includes('1080p5994'), 'screen switches to converted file');
-  await ad.evaluate(() => loadItems()); assert.equal(await ad.locator('text=Converting to 1080p').count(), 0);
-  console.log('✓ video states: converting → ready; default download = converted MP4; Original still available');
-  // a failed conversion is reported and can be retried
-  fake.buckets.media.delete(convKey); fake.buckets.media.set(`${vrow.week_key}/${vrow.id}.convert-error.txt`, { data: Buffer.from('boom') });
-  assert.equal((await aapi('items')).body.items.find((i) => i.id === vrow.id).dlState, 'failed');
-  const nBefore = dispatched.length; assert.equal((await aapi('reconvert', { id: vrow.id })).status, 200); assert.equal(dispatched.length, nBefore + 1);
-  assert.equal((await aapi('items')).body.items.find((i) => i.id === vrow.id).dlState, 'working');
-  await worker.main(fake.client); // leave it converted for the zip tests below
-  console.log('✓ failed conversion can be retried');
   const html = await ad.content();
   assert.ok(!/Open screen/.test(html) && !(await ad.$('button:has-text("Hide")')), 'no Open screen / Hide');
   assert.ok(await ad.$('a[href="/"][aria-label="Upload page"]'), 'upload page icon');
@@ -147,15 +101,13 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const sd = await (await post('/api/admin', { a: 'download', id: fake.tables.items.find((i) => i.kind === 'image').id }, { cookie: await ctx.cookies().then((c) => c.map((x) => `${x.name}=${x.value}`).join('; ')) })).json();
   assert.ok(/object\/sign\/media\//.test(sd.url), 'default download is the screen-ready (media) file');
   // Download all (screen-ready, then originals)
-  for (const [pick, expect, firstDims, lastDims] of [[null, 3, '1920,1080', '1920,1080'], ['Originals', 3, '400,300', '640,480']]) {
+  for (const [pick, expect, firstDims] of [[null, 3, '1920,1080'], ['Originals', 3, '400,300']]) {
     const [dl] = await Promise.all([ad.waitForEvent('download'), pick ? (async () => { await ad.click('#dlall .caret'); await ad.click(`#dlall .menu >> text=${pick}`); })() : ad.click('#dlall .main')]);
     const zf = path.join(OUT, 'dl.zip'); await dl.saveAs(zf);
     const names = execFileSync('unzip', ['-Z1', zf]).toString().trim().split('\n');
     assert.equal(names.length, expect, `zip has ${expect} files: ${names}`);
     assert.ok(names[0].endsWith('.png'), 'downloaded image is a .png: ' + names[0]);
     assert.equal(probe(execFileSync('unzip', ['-p', zf, names[0]], { maxBuffer: 1 << 26 })), firstDims, `first file in zip is ${firstDims}`);
-    assert.ok(names[names.length - 1].endsWith('.mp4'), 'video in zip is .mp4');
-    assert.equal(probe(execFileSync('unzip', ['-p', zf, names[names.length - 1]], { maxBuffer: 1 << 26 })), lastDims, `video in zip is ${lastDims}`);
     console.log(`✓ Download all (${pick || 'screen-ready'}) → ${dl.suggestedFilename()} with ${names.length} files`);
   }
   console.log('✓ no Open screen/Hide; Download split button + Download all work');
@@ -170,8 +122,6 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.ok(/bg\/bg-\d+\.png/.test((await (await fetch(B + '/api/display')).json()).bg));
   const refit = fake.buckets.media.get(before.media_path).data;
   fs.writeFileSync(`${OUT}/refit.jpg`, refit);
-  assert.ok(!fake.buckets.media.has(convKey), 'new background invalidates converted videos');
-  assert.ok(dispatched.length >= 3, 'and restarts the converter');
   console.log(`✓ background changed and existing photo re-fitted (${beforeBytes} → ${refit.length} bytes)`);
 
   // --- settings + upload code ---

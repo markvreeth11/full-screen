@@ -12,7 +12,7 @@ Weekly photo/video uploads for the church screen. Static pages + a few serverles
 
 - **Weekly reset & auto-delete.** Every upload is stamped with its week (Mon 00:00 → Sun 23:59 in your time zone; configurable). The screen and upload page only ever use the current week, so nothing stale shows on Monday. A daily Vercel Cron job (`/api/cron`) then deletes finished weeks (database rows *and* files). Admin → Settings → "Keep finished weeks for" = `0` by default; raise it if you want past weeks to stay downloadable for a while.
 - **1920×1080 fitting happens in the uploader's browser** (`public/fit.js`). Screen-ready images are saved as lossless **PNG**. Exact 1920×1080 images keep their pixels untouched; anything else is scaled up or down to the largest size that fits (in ≤2× steps with a light sharpen when enlarging) and centred on the background template. The untouched original is kept privately for you to download.
-- **Videos:** the screen starts playing an upload immediately. In the background a GitHub Action (`.github/workflows/convert-videos.yml`, using `ffmpeg`) converts it to a **1920×1080, 59.94 fps H.264/AAC `.mp4`** (placed over the background template if it isn't 16:9). Admin → **Download** gives that file once it's ready (about 1–3 minutes); the arrow still offers the **Original**. The screen switches to the converted file automatically. A new background re-converts this week's videos.
+- **Videos are not converted.** The player shows them over the background template, scaled to fit. Ask people to upload **MP4 (H.264)** — iPhone "HEVC" `.mov` files may not play on every screen PC.
 - **Background:** Admin → Background. Changing it re-fits this week's photos (keep the admin page open until it says *Done*).
 - **Upload code:** optional shared code (Settings) so only your people can upload.
 - Browsers never get database access. They receive short-lived signed upload URLs from `/api/upload`, which checks the upload code, size limits and open/closed status.
@@ -41,13 +41,7 @@ Free plan limits: **50 MB per file**, 1 GB storage. Fine for photos; compress lo
 
 3. Deploy. Add your domain under *Settings → Domains* (HTTPS is automatic).
 
-### 3. Video conversion (GitHub)
-Vercel can't run `ffmpeg`, so a free GitHub Action converts videos. One-time setup:
-1. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (same values as in Vercel).
-2. Make it start instantly after an upload (otherwise it runs within the hour): GitHub → profile → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**. Repository access: *Only select repositories* → this repo. Permissions → Repository → **Actions: Read and write**. Copy the token into Vercel as `GH_DISPATCH_TOKEN`, then redeploy.
-3. Open the repo's **Actions** tab and enable workflows if GitHub asks. You can run *Convert videos* by hand there at any time.
-
-### 4. Share
+### 3. Share
 - Bookmark/send `https://your-domain/` to uploaders.
 - Open `https://your-domain/display` on the screen PC. For sound: launch Chrome with `--kiosk --autoplay-policy=no-user-gesture-required`, or click the page once.
 - First thing: open `/admin` → Settings and set church name, time zone and (recommended) an upload code.

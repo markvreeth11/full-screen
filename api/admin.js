@@ -4,7 +4,7 @@ const pub = (i) => ({
   id: i.id, kind: i.kind, title: i.title, description: i.description, uploader: i.uploader,
   hidden: i.hidden, customDuration: i.custom_duration, fullFrame: i.full_frame, srcW: i.src_w, srcH: i.src_h,
   originalName: i.original_name, createdAt: i.created_at, order: i.sort_order,
-  url: `${c.publicUrl(i.media_path)}?v=${i.version}`, hasOriginal: i.kind === 'video' || !!i.original_path,
+  url: `${c.publicUrl(i.media_path)}?v=${i.version}`, hasOriginal: !!i.original_path,
 });
 
 module.exports = c.wrap(async (req, res) => {
@@ -37,9 +37,7 @@ module.exports = c.wrap(async (req, res) => {
       const weeks = Object.keys(counts).sort().reverse().map((k) => ({ key: k, count: counts[k], sunday: c.sundayOf(k) }));
       const key = counts[b.week] !== undefined ? b.week : cur;
       const { data } = await sb.from('items').select('*').eq('week_key', key).order('sort_order', { ascending: true });
-      const names = (data || []).some((i) => i.kind === 'video') ? await c.weekNames(key) : new Set();
-      const items = (data || []).map((i) => ({ ...pub(i), dlState: i.kind === 'video' ? c.convState(i, names) : null }));
-      return res.json({ current: cur, week: key, range: c.weekRange(key), sunday: c.sundayOf(key), weeks, items });
+      return res.json({ current: cur, week: key, range: c.weekRange(key), sunday: c.sundayOf(key), weeks, items: (data || []).map(pub) });
     }
     case 'update': {
       const patch = {};
@@ -70,50 +68,27 @@ module.exports = c.wrap(async (req, res) => {
     }
     case 'download': {
       const it = await one(b.id); if (!it) return res.status(404).json({ error: 'Not found' });
-      const wantOriginal = b.which === 'original';
-      let bucket = 'media', p, ext;
-      if (it.kind === 'video') {
-        if (wantOriginal) p = it.media_path;
-        else {
-          const st = c.convState(it, await c.weekNames(it.week_key));
-          if (st === 'working') return res.status(409).json({ error: 'Still converting to 1080p 59.94 MP4. Try again in a minute or two, or use Original.' });
-          if (st === 'failed') return res.status(409).json({ error: 'The 1080p conversion failed for this video. Use Original, or choose Retry conversion.' });
-          p = c.convPath(it);
-        }
-      } else if (wantOriginal && it.original_path) { bucket = 'originals'; p = it.original_path; }
-      else p = it.media_path;
-      ext = p.split('.').pop();
+      const orig = b.which === 'original' && it.original_path;
+      const bucket = orig ? 'originals' : 'media', p = orig ? it.original_path : it.media_path;
+      const ext = p.split('.').pop();
       const name = ((it.title || (it.original_name || 'file').replace(/\.[^.]+$/, '')).replace(/[^\w\- ]+/g, '').trim() || 'file') + '.' + ext;
       const { data, error } = await sb.storage.from(bucket).createSignedUrl(p, 600, { download: name });
       if (error) throw error;
       return res.json({ url: data.signedUrl });
     }
-    case 'reconvert': {
-      const it = await one(b.id); if (!it || it.kind !== 'video') return res.status(404).json({ error: 'Not found' });
-      await c.removeObjects('media', [c.errPath(it)]); await c.dispatchConvert();
-      return res.json({ ok: true });
-    }
     case 'download-all': {
       const wk = /^\d{4}-\d{2}-\d{2}$/.test(b.week || '') ? b.week : c.currentWeek(s);
       const { data } = await sb.from('items').select('*').eq('week_key', wk).order('sort_order', { ascending: true });
-      const names = (data || []).some((i) => i.kind === 'video') ? await c.weekNames(wk) : new Set();
-      const wantOriginal = b.which === 'original';
-      const waiting = (data || []).filter((i) => i.kind === 'video' && !wantOriginal && c.convState(i, names) === 'working').length;
-      if (waiting) return res.status(409).json({ error: `${waiting} video${waiting > 1 ? 's are' : ' is'} still being converted to 1080p. Try again in a minute or two.` });
       const files = [];
       for (const [n, it] of (data || []).entries()) {
-        let bucket = 'media', p, tag = '';
-        if (it.kind === 'video') {
-          if (!wantOriginal && c.convState(it, names) === 'ready') p = c.convPath(it);
-          else { p = it.media_path; if (!wantOriginal) tag = ' (original)'; }
-        } else if (wantOriginal && it.original_path) { bucket = 'originals'; p = it.original_path; }
-        else p = it.media_path;
+        const orig = b.which === 'original' && it.original_path;
+        const bucket = orig ? 'originals' : 'media', p = orig ? it.original_path : it.media_path;
         const base = (it.title || (it.original_name || 'file').replace(/\.[^.]+$/, '')).replace(/[^\w\- ]+/g, '').trim() || 'file';
         const { data: g, error } = await sb.storage.from(bucket).createSignedUrl(p, 1800);
         if (error) throw error;
-        files.push({ url: g.signedUrl, name: `${String(n + 1).padStart(2, '0')} ${base}${tag}.${p.split('.').pop()}` });
+        files.push({ url: g.signedUrl, name: `${String(n + 1).padStart(2, '0')} ${base}.${p.split('.').pop()}` });
       }
-      return res.json({ zipName: `Weekly Uploads - ${c.sundayOf(wk)}${wantOriginal ? ' (originals)' : ''}.zip`, files });
+      return res.json({ zipName: `Weekly Uploads - ${c.sundayOf(wk)}${b.which === 'original' ? ' (originals)' : ''}.zip`, files });
     }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {
@@ -147,13 +122,11 @@ module.exports = c.wrap(async (req, res) => {
       if (!/^bg\/bg-\d+\.(png|jpg)$/.test(b.path || '') || !(await c.exists('media', b.path))) return res.status(400).json({ error: 'Upload missing' });
       const old = s.bgPath; s.bgPath = b.path; s.bgVersion++; await c.saveSettings(s);
       if (old) await c.removeObjects('media', [old]);
-      await c.resetConversions(c.currentWeek(s));
       return res.json({ bg: c.bgUrl(s) });
     }
     case 'bg-reset': {
       const old = s.bgPath; s.bgPath = null; s.bgVersion++; await c.saveSettings(s);
       if (old) await c.removeObjects('media', [old]);
-      await c.resetConversions(c.currentWeek(s));
       return res.json({ bg: c.bgUrl(s) });
     }
     // Re-fit this week's already-uploaded images onto the new background.

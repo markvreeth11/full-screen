@@ -64,8 +64,8 @@ const caretSvg=()=>{const t=document.createElement('template');t.innerHTML='<svg
 const closeMenus=()=>document.querySelectorAll('.menu').forEach(m=>m.hidden=true);
 document.addEventListener('click',closeMenus);document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus()});
 // "Download ▾": the main part runs the default action, the arrow opens the other choices.
-function split(label,main,items,right,disabled){
-  const mainB=h('button',{className:'ghost sm'+(items?' main':''),onclick:main,disabled:!!disabled},label);
+function split(label,main,items,right){
+  const mainB=h('button',{className:'ghost sm'+(items?' main':''),onclick:main},label);
   if(!items)return mainB;
   const menu=h('div',{className:'menu'+(right?' right':''),hidden:true,role:'menu'},...items.map(([l,f])=>h('button',{role:'menuitem',onclick:()=>{menu.hidden=true;f()}},l)));
   const caret=h('button',{className:'ghost sm caret','aria-haspopup':'menu','aria-label':'More download options',onclick:e=>{e.stopPropagation();const open=menu.hidden;closeMenus();menu.hidden=!open}},caretSvg());
@@ -97,18 +97,11 @@ function card(it,i,n,live){
   const btn=(l,f,c='ghost sm',dis=false)=>h('button',{className:c,onclick:f,disabled:dis},l);
   const dl=which=>async()=>{try{const r=await api('download',{id:it.id,which});location.href=r.url}catch(e){alert(e.message)}};
   async function mv(dir){await api('move',{id:it.id,dir});loadItems()}
-  // Videos are converted to 1080p / 59.94 fps MP4 in the background; the default Download waits for that.
-  const vid=it.kind==='video';
-  const dlItems=!it.hasOriginal?null:vid
-    ?[...(it.dlState==='ready'?[['Screen-ready (1080p MP4)',dl('media')]]:[]),['Original',dl('original')],...(it.dlState==='failed'?[['Retry conversion',async()=>{await api('reconvert',{id:it.id});loadItems()}]]:[])]
-    :[['Screen-ready',dl('media')],['Original',dl('original')]];
-  const note=vid&&it.dlState==='working'?h('div',{className:'small mute',style:'margin-top:8px'},'Converting to 1080p 59.94 MP4… usually 1–3 minutes.')
-    :vid&&it.dlState==='failed'?h('div',{className:'small',style:'margin-top:8px;color:var(--danger)'},'Conversion failed — use Original or Retry conversion.'):null;
   const act=h('div',{className:'actions'},
-    split('Download',dl('media'),dlItems,false,vid&&it.dlState==='working'),
+    split('Download',dl('media'),it.hasOriginal?[['Screen-ready',dl('media')],['Original',dl('original')]]:null),
     ...(live?[btn('↑',()=>mv('up'),'ghost sm',i===0),btn('↓',()=>mv('down'),'ghost sm',i===n-1)]:[]),
     btn('Delete',async()=>{if(confirm('Delete this file permanently?')){await api('delete',{id:it.id});loadItems()}},'danger sm'));
-  return h('div',{className:'card item'},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{style:'margin-top:6px'},meta),...(note?[note]:[]),act));
+  return h('div',{className:'card item'},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{style:'margin-top:6px'},meta),act));
 }
 
 // Download every file of the selected week as one .zip (built in the browser).
