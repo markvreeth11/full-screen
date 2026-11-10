@@ -28,4 +28,10 @@ function weekRange(key) {
   return { start: key, end: iso(start + 6 * 86400e3) };
 }
 
-module.exports = { weekKey, weekRange };
+// The Sunday that ends/belongs to a week (first Sunday on or after its start).
+function sundayOf(key) {
+  const start = Date.parse(key + 'T00:00:00Z');
+  return iso(start + ((7 - new Date(start).getUTCDay()) % 7) * 86400e3);
+}
+
+module.exports = { weekKey, weekRange, sundayOf };

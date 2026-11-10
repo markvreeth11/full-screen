@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
-const { weekKey, weekRange } = require('./week');
+const { weekKey, weekRange, sundayOf } = require('./week');
 
 let _sb;
 const sb = () => (_sb ||= createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -117,7 +117,7 @@ async function purgeOld(s) {
 }
 
 module.exports = {
-  sb, DEFAULTS, MAX_IMAGE_MB, getSettings, saveSettings, currentWeek, weekRange, publicUrl, bgUrl, clip,
+  sb, DEFAULTS, MAX_IMAGE_MB, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
   wrap, exists, removeObjects, purgeOld,
 };
