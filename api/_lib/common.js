@@ -184,15 +184,15 @@ function buildNotification(s, req, it) {
   };
   const subject = oneLine(fill(s.emailSubject || DEFAULTS.emailSubject, vars)).slice(0, 150) || oneLine(fill(DEFAULTS.emailSubject, vars));
   const intro = fill(s.emailIntro, vars).trim();
-  const admin = siteUrl(req) + '/admin';
+  const link = siteUrl(req) + '/view'; // volunteer page: asks for the viewer password, then lists + downloads files
   const rows = [['Type', it.kind === 'video' ? 'Video' : 'Image'], ['Title', it.title], ['Description', it.description], ['File', it.original_name], ['For', `Sunday, ${when}`]].filter((r) => r[1]);
   return {
     subject,
-    text: (intro ? intro + '\n\n' : '') + rows.map((r) => `${r[0]}: ${r[1]}`).join('\n') + `\n\nView and download: ${admin}`,
+    text: (intro ? intro + '\n\n' : '') + rows.map((r) => `${r[0]}: ${r[1]}`).join('\n') + `\n\nDownload: ${link}`,
     html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px"><h2 style="margin:0 0 12px">New ${esc(it.kind)} uploaded</h2>` +
       (intro ? `<p style="margin:0 0 14px">${esc(intro).replace(/\n/g, '<br>')}</p>` : '') +
       rows.map((r) => `<p style="margin:4px 0"><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('') +
-      `<p style="margin:18px 0"><a href="${esc(admin)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">View in admin</a></p></div>`,
+      `<p style="margin:18px 0"><a href="${esc(link)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">Download</a></p></div>`,
   };
 }
 

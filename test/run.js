@@ -171,8 +171,8 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const em = emails.at(-1);
   assert.deepEqual(em.to, ['me@example.com']); assert.match(em.subject, /^New image uploaded: /); assert.ok(!/[\r\n]/.test(em.subject), 'subject is one line');
   assert.ok(em.html.includes('&lt;script&gt;') && !em.html.includes('<script>'), 'HTML is escaped');
-  assert.ok(em.html.includes('desc &lt;b&gt;bold&lt;/b&gt;') && /\/admin/.test(em.text) && /Sunday, November 15/.test(em.text), 'email has details + admin link');
-  console.log('✓ upload sends one email (escaped, one-line subject, admin link)');
+  assert.ok(em.html.includes('desc &lt;b&gt;bold&lt;/b&gt;') && /Download: http\S*\/view$/.test(em.text.trim()) && !/\/admin/.test(em.text + em.html) && />Download<\/a>/.test(em.html) && /Sunday, November 15/.test(em.text), 'email has details + a Download button to /view (no admin link)');
+  console.log('✓ upload sends one email (escaped, one-line subject, Download button to /view)');
   // editable subject + intro with placeholders
   assert.equal((await aapi2('settings-put', { emailSubject: '[Church] {Title} ({type}) for {sunday} {nope}', emailIntro: 'Hi team,\n<b>New</b> for {sunday}: {file}' })).status, 200);
   const nTpl = emails.length; assert.equal((await uploadViaApi('Youth Night')).status(), 200);
