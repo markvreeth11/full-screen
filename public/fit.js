@@ -47,13 +47,16 @@
 
   async function loadBg(url) { return toBitmap(await (await fetch(url)).blob()); }
 
-  async function fitImage(file, bg) {
+  // Screen-ready files are lossless PNG. fmt='jpg' is only used to re-fit older .jpg files in place.
+  const encode = (c, fmt) => (fmt === 'jpg' ? toBlob(c, 'image/jpeg', 0.95) : toBlob(c, 'image/png'));
+
+  async function fitImage(file, bg, fmt = 'png') {
     const bmp = await toBitmap(file), { w, h } = size(bmp);
     if (!w || !h) throw new Error('Could not read this image');
-    const png = file.type === 'image/png';
+    const ext = fmt === 'jpg' ? 'jpg' : 'png';
     if (w === W && h === H) {
       const c = canvas(W, H); c.getContext('2d').drawImage(bmp, 0, 0);
-      return { blob: await toBlob(c, png ? 'image/png' : 'image/jpeg', 0.97), ext: png ? 'png' : 'jpg', fullFrame: true, srcW: w, srcH: h };
+      return { blob: await encode(c, ext), ext, fullFrame: true, srcW: w, srcH: h };
     }
     const sc = Math.min(W / w, H / h);
     const tw = Math.min(W, Math.max(1, Math.round(w * sc))), th = Math.min(H, Math.max(1, Math.round(h * sc)));
@@ -62,7 +65,7 @@
     const c = canvas(W, H), x = c.getContext('2d');
     x.drawImage(bg, 0, 0, W, H);
     x.drawImage(fg, Math.floor((W - tw) / 2), Math.floor((H - th) / 2));
-    return { blob: await toBlob(c, 'image/jpeg', 0.95), ext: 'jpg', fullFrame: false, srcW: w, srcH: h };
+    return { blob: await encode(c, ext), ext, fullFrame: false, srcW: w, srcH: h };
   }
 
   // Background template: cover-fit any image to 1920x1080.
@@ -71,7 +74,7 @@
     const sc = Math.max(W / w, H / h), tw = Math.round(w * sc), th = Math.round(h * sc);
     const big = scaleTo(bmp, tw, th), c = canvas(W, H);
     c.getContext('2d').drawImage(big, Math.floor((W - tw) / 2), Math.floor((H - th) / 2));
-    return toBlob(c, 'image/jpeg', 0.95);
+    return toBlob(c, 'image/png');
   }
 
   g.Fit = { W, H, fitImage, loadBg, makeBackground };

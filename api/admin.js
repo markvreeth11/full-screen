@@ -113,13 +113,13 @@ module.exports = c.wrap(async (req, res) => {
 
     // Background: the browser renders the 1920x1080 file, we just store it.
     case 'bg-sign': {
-      const path = `bg/bg-${Date.now()}.jpg`;
+      const path = `bg/bg-${Date.now()}.png`;
       const { data, error } = await sb.storage.from('media').createSignedUploadUrl(path);
       if (error) throw error;
       return res.json({ bucket: 'media', path, token: data.token });
     }
     case 'bg-commit': {
-      if (!/^bg\/bg-\d+\.jpg$/.test(b.path || '') || !(await c.exists('media', b.path))) return res.status(400).json({ error: 'Upload missing' });
+      if (!/^bg\/bg-\d+\.(png|jpg)$/.test(b.path || '') || !(await c.exists('media', b.path))) return res.status(400).json({ error: 'Upload missing' });
       const old = s.bgPath; s.bgPath = b.path; s.bgVersion++; await c.saveSettings(s);
       if (old) await c.removeObjects('media', [old]);
       return res.json({ bg: c.bgUrl(s) });

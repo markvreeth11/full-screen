@@ -11,7 +11,7 @@ Weekly photo/video uploads for the church screen. Static pages + a few serverles
 ## How it works
 
 - **Weekly reset & auto-delete.** Every upload is stamped with its week (Mon 00:00 → Sun 23:59 in your time zone; configurable). The screen and upload page only ever use the current week, so nothing stale shows on Monday. A daily Vercel Cron job (`/api/cron`) then deletes finished weeks (database rows *and* files). Admin → Settings → "Keep finished weeks for" = `0` by default; raise it if you want past weeks to stay downloadable for a while.
-- **1920×1080 fitting happens in the uploader's browser** (`public/fit.js`). Exact 1920×1080 images are kept as-is; anything else is scaled up or down to the largest size that fits (in ≤2× steps with a light sharpen when enlarging) and centred on the background template. The untouched original is kept privately for you to download.
+- **1920×1080 fitting happens in the uploader's browser** (`public/fit.js`). Screen-ready images are saved as lossless **PNG**. Exact 1920×1080 images keep their pixels untouched; anything else is scaled up or down to the largest size that fits (in ≤2× steps with a light sharpen when enlarging) and centred on the background template. The untouched original is kept privately for you to download.
 - **Videos are not converted.** The player shows them over the background template, scaled to fit. Ask people to upload **MP4 (H.264)** — iPhone "HEVC" `.mov` files may not play on every screen PC.
 - **Background:** Admin → Background. Changing it re-fits this week's photos (keep the admin page open until it says *Done*).
 - **Upload code:** optional shared code (Settings) so only your people can upload.

@@ -49,6 +49,17 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
     assert.equal(probe(Buffer.from(await (await fetch(it.url)).arrayBuffer())), '1920,1080', 'processed image is 1920x1080');
   }
   console.log('✓ display feed ok; fitted images are 1920x1080');
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  for (const it of fake.tables.items.filter((i) => i.kind === 'image')) {
+    assert.ok(it.media_path.endsWith('.png'), 'screen-ready file is .png: ' + it.media_path);
+    assert.ok(fake.buckets.media.get(it.media_path).data.subarray(0, 4).equals(PNG), 'bytes really are PNG');
+  }
+  console.log('✓ screen-ready images are lossless PNG');
+  // older .jpg files can still be re-fitted as JPEG
+  const fmts = await up.evaluate(async () => { const c = document.createElement('canvas'); c.width = 300; c.height = 200; c.getContext('2d').fillRect(0, 0, 300, 200);
+    const f = await new Promise((r) => c.toBlob(r, 'image/png')), bg = await Fit.loadBg('/default-background.webp');
+    return [(await Fit.fitImage(f, bg)).blob.type, (await Fit.fitImage(f, bg, 'jpg')).blob.type]; });
+  assert.deepEqual(fmts, ['image/png', 'image/jpeg']);
   assert.equal(fake.tables.items.filter((i) => i.original_path).length, 2);
   assert.equal(fake.buckets.originals.size, 2);
   console.log('✓ originals kept privately for the 2 images; video stored once');
@@ -90,12 +101,13 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const sd = await (await post('/api/admin', { a: 'download', id: fake.tables.items.find((i) => i.kind === 'image').id }, { cookie: await ctx.cookies().then((c) => c.map((x) => `${x.name}=${x.value}`).join('; ')) })).json();
   assert.ok(/object\/sign\/media\//.test(sd.url), 'default download is the screen-ready (media) file');
   // Download all (screen-ready, then originals)
-  for (const [pick, expect, firstExt] of [[null, 3, '.jpg'], ['Originals', 3, '.png']]) {
+  for (const [pick, expect, firstDims] of [[null, 3, '1920,1080'], ['Originals', 3, '400,300']]) {
     const [dl] = await Promise.all([ad.waitForEvent('download'), pick ? (async () => { await ad.click('#dlall .caret'); await ad.click(`#dlall .menu >> text=${pick}`); })() : ad.click('#dlall .main')]);
     const zf = path.join(OUT, 'dl.zip'); await dl.saveAs(zf);
     const names = execFileSync('unzip', ['-Z1', zf]).toString().trim().split('\n');
     assert.equal(names.length, expect, `zip has ${expect} files: ${names}`);
-    assert.ok(names[0].endsWith(firstExt), `first file is ${firstExt}: ${names[0]}`);
+    assert.ok(names[0].endsWith('.png'), 'downloaded image is a .png: ' + names[0]);
+    assert.equal(probe(execFileSync('unzip', ['-p', zf, names[0]], { maxBuffer: 1 << 26 })), firstDims, `first file in zip is ${firstDims}`);
     console.log(`✓ Download all (${pick || 'screen-ready'}) → ${dl.suggestedFilename()} with ${names.length} files`);
   }
   console.log('✓ no Open screen/Hide; Download split button + Download all work');
@@ -107,7 +119,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await ad.waitForFunction(() => /Done/.test(document.querySelector('#bgs').textContent), null, { timeout: 30000 });
   const after = fake.tables.items.find((i) => i.id === before.id);
   assert.ok(after.version > v0, 'image re-fitted after background change');
-  assert.ok(/bg\/bg-\d+\.jpg/.test((await (await fetch(B + '/api/display')).json()).bg));
+  assert.ok(/bg\/bg-\d+\.png/.test((await (await fetch(B + '/api/display')).json()).bg));
   const refit = fake.buckets.media.get(before.media_path).data;
   fs.writeFileSync(`${OUT}/refit.jpg`, refit);
   console.log(`✓ background changed and existing photo re-fitted (${beforeBytes} → ${refit.length} bytes)`);

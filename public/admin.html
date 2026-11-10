@@ -146,8 +146,8 @@ async function rerender(say){
     say(`Re-fitting photos… ${++n}/${ids.length}`);
     const r=await api('rerender-start',{id});
     const src=await (await fetch(r.original)).blob();
-    const out=await Fit.fitImage(src,bg);
-    const {error}=await sb.storage.from(r.upload.bucket).uploadToSignedUrl(r.upload.path,r.upload.token,out.blob,{contentType:'image/jpeg',upsert:true});
+    const out=await Fit.fitImage(src,bg,r.upload.path.endsWith('.jpg')?'jpg':'png');
+    const {error}=await sb.storage.from(r.upload.bucket).uploadToSignedUrl(r.upload.path,r.upload.token,out.blob,{contentType:out.blob.type,upsert:true});
     if(error)throw new Error(error.message);
     await api('rerender-done',{id});
   }
@@ -155,7 +155,7 @@ async function rerender(say){
 $('#bgb').onclick=()=>$('#bgf').click();
 $('#bgf').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const say=t=>$('#bgs').textContent=t;
   try{say('Preparing…');const blob=await Fit.makeBackground(f);const sb=await sbClient();
-    const s=await api('bg-sign');const {error}=await sb.storage.from(s.bucket).uploadToSignedUrl(s.path,s.token,blob,{contentType:'image/jpeg'});if(error)throw new Error(error.message);
+    const s=await api('bg-sign');const {error}=await sb.storage.from(s.bucket).uploadToSignedUrl(s.path,s.token,blob,{contentType:'image/png'});if(error)throw new Error(error.message);
     const r=await api('bg-commit',{path:s.path});$('#bgp').src=r.bg;
     await rerender(say);say('Done ✓');loadItems()}catch(x){say('Failed: '+x.message)}};
 $('#bgr').onclick=async()=>{if(!confirm('Reset to the default autumn background?'))return;const say=t=>$('#bgs').textContent=t;
