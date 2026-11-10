@@ -1,13 +1,13 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin</title><link rel="stylesheet" href="/style.css"></head><body>
+<title>Weekly Uploads · Admin</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body>
 <div class="wrap wide">
 <div id="login" class="card" style="max-width:380px;margin:12vh auto" hidden>
-  <h1>Admin sign-in</h1>
+  <img class="logo" src="/logo.png" alt="" style="width:72px;display:block;margin:0 auto 10px"><h1 style="text-align:center;font-size:1.6rem">Admin sign-in</h1>
   <form id="lf"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" autofocus>
   <div id="lerr" class="msg bad" hidden></div><p><button>Sign in</button></p></form>
 </div>
 <div id="app" hidden>
-  <div class="row"><h1 class="grow">Screen admin</h1><a class="btn ghost" href="/" target="_blank">Upload page ↗</a><a class="btn ghost" href="/display" target="_blank">Open screen ↗</a><button class="ghost" id="out">Sign out</button></div>
+  <div class="top"><img class="logo" src="/logo.png" alt=""><h1 class="grow">Weekly Uploads <span class="mute" style="font-weight:500">· Admin</span></h1><a class="btn ghost" href="/" target="_blank">Upload page ↗</a><a class="btn ghost" href="/display" target="_blank">Open screen ↗</a><button class="ghost" id="out">Sign out</button></div>
   <div class="tabs"><button data-t="files" class="on">Files</button><button data-t="bg">Background</button><button data-t="set">Settings</button></div>
 
   <section id="t-files">
@@ -24,7 +24,6 @@
   </div></section>
 
   <section id="t-set" hidden><div class="card" style="max-width:720px"><h2>Settings</h2>
-    <label>Church name</label><input type="text" id="churchName">
     <div class="two">
       <div><label>Time zone</label><input type="text" id="timezone" list="tzs"><datalist id="tzs"></datalist></div>
       <div><label>Seconds per image</label><input type="number" id="imageDuration" min="2" max="600"></div>
@@ -50,9 +49,9 @@ const $=s=>document.querySelector(s);
 const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x in e&&x!=='style'?e[x]=v:e.setAttribute(x,v);e.append(...k);return e};
 const api=async(a,body={})=>{const r=await fetch('/api/admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a,...body})});
   if(r.status===401&&a!=='login'){show(false);throw new Error('Signed out')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
-const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'});
+const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const KEYS=['churchName','timezone','imageDuration','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','transition','uploadCode'];
+const KEYS=['timezone','imageDuration','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','transition','uploadCode'];
 let week=null,timer,SB;
 
 function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok;if(!ok)clearInterval(timer)}
@@ -65,8 +64,8 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
 
 async function loadItems(){
   const d=await api('items',{week});week=d.week;
-  const sel=$('#week');sel.replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`Week of ${fmt(w.key)}${w.key===d.current?' (this week)':''} — ${w.count} file${w.count===1?'':'s'}`)));
-  $('#range').textContent=`${fmt(d.range.start)} – ${fmt(d.range.end)}`+(week===d.current?' · live on the screen':' · finished (not shown)');
+  const sel=$('#week');sel.replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`${fmt(w.sunday)}${w.key===d.current?' (this Sunday)':''} — ${w.count} file${w.count===1?'':'s'}`)));
+  $('#range').textContent=week===d.current?'Live on the screen':'Finished — no longer shown on the screen';
   $('#empty').hidden=d.items.length>0;
   const box=$('#items');
   if(box.contains(document.activeElement)&&document.activeElement.matches('input,textarea'))return;
@@ -79,7 +78,7 @@ function card(it,i,n,live){
   const t=h('input',{type:'text',value:it.title,placeholder:'Title',maxLength:120}),d=h('textarea',{value:it.description,placeholder:'Description',maxLength:400,rows:2});
   const save=()=>api('update',{id:it.id,title:t.value,description:d.value}).catch(()=>{});
   t.onchange=d.onchange=save;
-  const meta=h('div',{className:'small mute'},`${it.originalName||''} · ${it.srcW?it.srcW+'×'+it.srcH:''}${it.fullFrame===false?' · fitted on background':it.fullFrame?' · exact fit':''}${it.uploader?' · by '+it.uploader:''}`);
+  const meta=h('div',{className:'small mute'},[it.originalName,it.srcW?it.srcW+'×'+it.srcH:'',it.fullFrame===false?'fitted on background':it.fullFrame?'exact fit':''].filter(Boolean).join(' · '));
   const dur=it.kind==='image'?h('input',{type:'number',min:2,max:600,placeholder:'sec',value:it.customDuration||'',title:'Seconds on screen (blank = default)',style:'width:72px'}):null;
   if(dur)dur.onchange=()=>api('update',{id:it.id,customDuration:dur.value}).catch(()=>{});
   const btn=(l,f,c='ghost sm',dis=false)=>h('button',{className:c,onclick:f,disabled:dis},l);
@@ -99,7 +98,7 @@ async function loadSettings(){
   const s=await api('settings-get');$('#bgp').src=s.bg;
   for(const k of KEYS)$('#'+k).value=s[k];
   $('#showCaptions').checked=s.showCaptions;$('#uploadsOpen').checked=s.uploadsOpen;
-  $('#wk').textContent=`The screen is currently showing the week starting ${s.currentWeek}.`;
+  $('#wk').textContent=`The screen is currently showing uploads for ${fmt(s.sunday)}.`;
 }
 $('#rolloverDay').replaceChildren(...DAYS.map((d,i)=>h('option',{value:i},d)));
 try{$('#tzs').replaceChildren(...Intl.supportedValuesOf('timeZone').map(z=>h('option',{value:z})))}catch{}

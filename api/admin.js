@@ -34,10 +34,10 @@ module.exports = c.wrap(async (req, res) => {
       const { data: all } = await sb.from('items').select('week_key');
       const counts = {}; (all || []).forEach((r) => { counts[r.week_key] = (counts[r.week_key] || 0) + 1; });
       counts[cur] = counts[cur] || 0;
-      const weeks = Object.keys(counts).sort().reverse().map((k) => ({ key: k, count: counts[k] }));
+      const weeks = Object.keys(counts).sort().reverse().map((k) => ({ key: k, count: counts[k], sunday: c.sundayOf(k) }));
       const key = counts[b.week] !== undefined ? b.week : cur;
       const { data } = await sb.from('items').select('*').eq('week_key', key).order('sort_order', { ascending: true });
-      return res.json({ current: cur, week: key, range: c.weekRange(key), weeks, items: (data || []).map(pub) });
+      return res.json({ current: cur, week: key, range: c.weekRange(key), sunday: c.sundayOf(key), weeks, items: (data || []).map(pub) });
     }
     case 'update': {
       const patch = {};
@@ -76,7 +76,7 @@ module.exports = c.wrap(async (req, res) => {
       if (error) throw error;
       return res.json({ url: data.signedUrl });
     }
-    case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s) });
+    case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {
       const n = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' ? Math.min(hi, Math.max(lo, +v)) : d);
       if ('churchName' in b) s.churchName = c.clip(b.churchName, 80) || s.churchName;
@@ -94,7 +94,7 @@ module.exports = c.wrap(async (req, res) => {
       if ('keepPastWeeks' in b) s.keepPastWeeks = Math.round(n(b.keepPastWeeks, 0, 104, s.keepPastWeeks));
       if ('maxVideoMB' in b) s.maxVideoMB = Math.round(n(b.maxVideoMB, 5, 5000, s.maxVideoMB));
       await c.saveSettings(s);
-      return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s) });
+      return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     }
 
     // Background: the browser renders the 1920x1080 file, we just store it.

@@ -1,8 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Share for Sunday</title><link rel="stylesheet" href="/style.css"></head>
-<body class="leaves"><div class="wrap">
-<h1 id="church">Share for Sunday</h1>
-<p class="mute" id="week">&nbsp;</p>
+<title>Weekly Uploads</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
+<body><div class="wrap">
+<header class="hero"><img class="logo" src="/logo.png" alt=""><h1>Weekly Uploads</h1><p class="sub" id="week">&nbsp;</p></header>
 <div id="gate" class="card" hidden>
   <h2>Enter the upload code</h2><p class="mute">Ask a church leader if you don't have it.</p>
   <form id="gateForm" class="row"><input class="grow" type="password" id="code" placeholder="Upload code" autocomplete="off"><button>Continue</button></form>
@@ -11,14 +10,11 @@
 <div id="closed" class="msg" hidden>Uploads are closed right now. Please check back later.</div>
 <div id="main" hidden>
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose photos or videos">
-    <b>Drag &amp; drop photos or videos here</b><span class="mute">or click to choose files</span>
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg><b>Drag &amp; drop images or videos</b><span class="mute">or tap to choose from your device</span>
   </div>
   <input type="file" id="pick" accept="image/*,video/*" multiple hidden>
   <div id="list"></div>
-  <div class="row" id="bar" style="margin-top:18px" hidden>
-    <div class="grow"><label for="who" style="margin:0 0 4px">Your name <span class="mute">(optional)</span></label><input type="text" id="who" maxlength="80"></div>
-    <button id="send" style="align-self:end">Upload</button>
-  </div>
+  <div class="center" id="bar" hidden><button id="send">Upload</button></div>
   <div id="done"></div>
 </div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -31,10 +27,15 @@ let files=[],INFO,SB,BG;
 const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric'});
 
 async function init(){
-  INFO=await (await fetch('/api/info')).json();
-  $('#church').textContent=INFO.churchName;document.title='Share for Sunday · '+INFO.churchName;
-  document.body.style.setProperty('--bgimg',`url(${INFO.bg})`);
-  $('#week').textContent=`Upload for the week of ${fmt(INFO.range.start)} – ${fmt(INFO.range.end)}. Everything you add is shown on the screen this week, then deleted automatically.`;
+  try{await load()}catch(e){
+    document.body.append(h('div',{className:'wrap'},h('div',{className:'msg bad'},"Sorry, the upload page couldn't load. The site may still be getting set up. ("+e.message+")")));
+  }
+}
+async function load(){
+  const r=await fetch('/api/info');
+  if(!r.ok)throw new Error('server error '+r.status);
+  INFO=await r.json();
+  $('#week').textContent=`Upload images and videos for this upcoming Sunday (${fmt(INFO.sunday)})`;
   $('#gate').hidden=!INFO.needsCode;$('#closed').hidden=INFO.needsCode||INFO.uploadsOpen;$('#main').hidden=INFO.needsCode||!INFO.uploadsOpen;
   SB=supabase.createClient(INFO.supabaseUrl,INFO.supabaseKey||'none',{auth:{persistSession:false}});
 }
@@ -93,7 +94,7 @@ async function upload(o){
       if(error)throw new Error(error.message||'Upload failed');
       o.bar.style.width=(35+(i+1)/sj.uploads.length*55)+'%';
     }
-    const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,uploader:$('#who').value,originalName:o.f.name,...meta});
+    const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,originalName:o.f.name,...meta});
     const dj=await d.json();if(!d.ok)throw new Error(dj.error||'Could not finish upload');
     o.bar.style.width='100%';o.done=true;o.st.textContent='On the screen this week ✓';o.st.style.color='var(--ok)';
     return true;
