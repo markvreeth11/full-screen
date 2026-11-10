@@ -164,7 +164,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await aapi2('settings-put', { notifyEmail: 'me@example.com' })).status, 200);
   assert.equal((await aapi2('notify-test', { email: 'you@example.com' })).status, 200);
   assert.deepEqual(emails.at(-1).to, ['you@example.com']);
-  assert.equal((await aapi2('notify-test', { email: 'fail@example.com' })).body.error, 'domain not verified');
+  assert.match((await aapi2('notify-test', { email: 'fail@example.com' })).body.error, /^domain not verified\n/);
   const n0 = emails.length, xssTitle = '<script>alert(1)</script> Hello\nWorld';
   const r1 = await uploadViaApi(xssTitle); assert.equal(r1.status(), 200);
   assert.equal(emails.length, n0 + 1, 'one email per upload');
