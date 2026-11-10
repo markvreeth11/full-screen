@@ -2,12 +2,12 @@ const c = require('./_lib/common');
 const F = require('./_lib/files');
 
 // Volunteer viewer: sign in with the viewer password (set by the admin) to see and download uploads.
-// Strictly read-only — there is no edit/delete/reorder/settings action here, and the viewer cookie is
+// Screen-ready files only (never the originals). Strictly read-only — there is no edit/delete/reorder/settings action here, and the viewer cookie is
 // not accepted by the admin API.
 const pubViewer = (i) => ({
   id: i.id, kind: i.kind, title: i.title, description: i.description, originalName: i.original_name,
   srcW: i.src_w, srcH: i.src_h, fullFrame: i.full_frame,
-  url: `${c.publicUrl(i.media_path)}?v=${i.version}`, hasOriginal: !!i.original_path,
+  url: `${c.publicUrl(i.media_path)}?v=${i.version}`,
 });
 
 module.exports = c.wrap(async (req, res) => {
@@ -36,9 +36,9 @@ module.exports = c.wrap(async (req, res) => {
     }
     case 'download': {
       const it = await F.itemById(b.id); if (!it) return res.status(404).json({ error: 'Not found' });
-      return res.json({ url: await F.downloadUrl(it, b.which) });
+      return res.json({ url: await F.downloadUrl(it, 'media') }); // 'original' is never offered to volunteers
     }
-    case 'download-all': return res.json(await F.downloadAllFiles(s, b.week, b.which));
+    case 'download-all': return res.json(await F.downloadAllFiles(s, b.week, 'media'));
     default: return res.status(400).json({ error: 'Unknown action' });
   }
 });

@@ -23,6 +23,7 @@ module.exports = c.wrap(async (req, res) => {
     const targets = kind === 'image'
       ? [{ bucket: 'originals', path: `${week}/${id}.${ext}` }, { bucket: 'media', path: `${week}/${id}.${outExt}` }]
       : [{ bucket: 'media', path: `${week}/${id}.${ext}` }];
+    if (b.thumb === true) targets.push({ bucket: 'media', path: `${week}/${id}-thumb.jpg` }); // optional small preview (never required)
     const uploads = [];
     for (const t of targets) {
       const { data, error } = await sb.storage.from(t.bucket).createSignedUploadUrl(t.path);
@@ -31,7 +32,7 @@ module.exports = c.wrap(async (req, res) => {
     }
     const ticket = c.mkTicket({
       id, kind, exp: Date.now() + 2 * 3600e3,
-      media: targets[targets.length - 1].path, original: kind === 'image' ? targets[0].path : null,
+      media: targets[kind === 'image' ? 1 : 0].path, original: kind === 'image' ? targets[0].path : null,
     });
     return res.json({ ticket, uploads });
   }

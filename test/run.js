@@ -151,7 +151,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const notifyApi = (receipts) => ctx.request.post(B + '/api/upload', { data: { action: 'notify', receipts } });
   // uploads one file; unless notify:false, also sends the alert for it (a batch of one). Returns the "done" response.
   const uploadViaApi = async (title, { notify = true } = {}) => {
-    const sg = await (await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'image', ext: 'png', outExt: 'png', size: 1234 } })).json();
+    const sg = await (await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'image', ext: 'png', outExt: 'png', size: 1234, thumb: true } })).json();
     for (const u of sg.uploads) fake.buckets[u.bucket].set(u.path, { data: Buffer.from('x') });
     const done = await ctx.request.post(B + '/api/upload', { data: { action: 'done', ticket: sg.ticket, title, description: 'desc <b>bold</b>', originalName: 'pic.png', srcW: 10, srcH: 10, fullFrame: false } });
     if (notify && done.ok()) await notifyApi([(await done.json()).receipt]);
@@ -159,6 +159,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   };
   const receiptOf = async (res) => (await res.json()).receipt;
   assert.equal((await aapi2('settings-put', { notifyEmail: 'not-an-email' })).status, 400);
+  assert.equal((await aapi2('settings-put', { viewerPassword: 'church' })).status, 200);
   const six = Array.from({ length: 6 }, (_, i) => `person${i + 1}@example.com`).join(', ');
   assert.equal((await aapi2('settings-put', { notifyEmail: Array.from({ length: 21 }, (_, i) => `p${i}@example.com`).join(',') })).status, 400, 'more than 20 rejected');
   assert.equal((await aapi2('settings-put', { notifyEmail: six })).status, 200, '6 addresses accepted');
@@ -176,22 +177,27 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal(emails.length, n0 + 1, 'one email per upload');
   const em = emails.at(-1);
   assert.deepEqual(em.to, ['me@example.com']); assert.match(em.subject, /^New image uploaded: /); assert.ok(!/[\r\n]/.test(em.subject), 'subject is one line');
-  assert.ok(em.html.includes('&lt;script&gt;') && !em.html.includes('<script>'), 'HTML is escaped');
-  assert.ok(em.html.includes('desc &lt;b&gt;bold&lt;/b&gt;') && /Download: http\S*\/view$/.test(em.text.trim()) && !/\/admin/.test(em.text + em.html) && />Download<\/a>/.test(em.html) && /Sunday, November 15/.test(em.text), 'email has details + a Download button to /view (no admin link)');
-  console.log('✓ upload sends one email (escaped, one-line subject, Download button to /view)');
+  assert.ok(em.text.startsWith('New media has been uploaded! To access your downloads use password - church\n\nDownload: '), 'the requested message, with the viewer password');
+  assert.ok(em.html.includes('New media has been uploaded! To access your downloads use password - church'));
+  assert.ok(/<img src="[^"]+-thumb\.jpg\?v=\d+"[^>]*width="150"/.test(em.html), 'small preview image');
+  assert.ok(em.html.includes('&lt;script&gt;') && !em.html.includes('<script>'), 'titles are HTML-escaped (alt text)');
+  assert.ok(em.html.indexOf('<img') < em.html.indexOf('>Download</a>'), 'Download button comes after the previews');
+  assert.ok(/Download: http\S*\/view$/.test(em.text.trim()) && !/\/admin/.test(em.text + em.html) && !/Sunday, November|Description/.test(em.text + em.html), 'just message + previews + Download to /view');
+  console.log('✓ email = your message, small previews, Download button (to /view)');
   // editable subject + intro with placeholders
   assert.equal((await aapi2('settings-put', { emailSubject: '[Church] {Title} ({type}) for {sunday} {nope}', emailIntro: 'Hi team,\n<b>New</b> for {sunday}: {file}' })).status, 200);
   const nTpl = emails.length; assert.equal((await uploadViaApi('Youth Night')).status(), 200);
   const tp = emails.at(-1); assert.equal(emails.length, nTpl + 1);
   assert.equal(tp.subject, '[Church] Youth Night (image) for November 15 {nope}', 'subject placeholders filled');
   assert.ok(tp.html.includes('Hi team,<br>&lt;b&gt;New&lt;/b&gt; for November 15: pic.png'), 'intro filled, escaped, newline kept');
-  assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\n'), 'intro in plain text too');
+  assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\nDownload: '), 'message in plain text too');
   const pv = await aapi2('notify-test', { email: 'you@example.com', emailSubject: 'Preview {title}', emailIntro: 'unsaved intro' });
   assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo, Another photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
   assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {TITLE} ({TYPE}) for {SUNDAY} {nope}', 'preview did not save; placeholders stored in CAPITALS (unknown ones untouched)');
   assert.equal((await aapi2('settings-get')).body.emailIntro, 'Hi team,\n<b>New</b> for {SUNDAY}: {FILE}');
   await aapi2('settings-put', { emailSubject: '   ', emailIntro: '' });
   assert.equal((await aapi2('settings-get')).body.emailSubject, 'New {TYPE} uploaded: {TITLE}', 'blank subject resets to the (uppercase) default');
+  assert.equal((await aapi2('settings-get')).body.emailIntro, 'New media has been uploaded! To access your downloads use password - {PASSWORD}', 'blank message resets to the default message');
   console.log('✓ email subject + intro are editable with placeholders; test previews unsaved edits');
   for (const it of fake.tables.items.filter((i) => i.title === 'Youth Night' && i.original_name === 'pic.png')) await aapi2('delete', { id: it.id });
   await aapi2('settings-put', { notifyEmail: 'fail@example.com' });
@@ -207,8 +213,8 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const n1b = await (await notifyApi([rA, rB, rC])).json(); assert.equal(n1b.sent, 3);
   assert.equal(emails.length, nB + 1, 'three files -> ONE email');
   const be = emails.at(-1);
-  assert.equal(be.subject, 'New images uploaded: Alpha, Beta, Gamma'); assert.match(be.html, /New images uploaded \(3\)/);
-  assert.ok(/1\. Alpha[\s\S]*2\. Beta[\s\S]*3\. Gamma/.test(be.text) && /\/view/.test(be.text), 'lists all three, in order, with the Download link');
+  assert.equal(be.subject, 'New images uploaded: Alpha, Beta, Gamma'); assert.equal((be.html.match(/<img /g) || []).length, 3, 'a preview for each of the three');
+  assert.ok(be.html.indexOf('alt="Alpha"') < be.html.indexOf('alt="Beta"') && be.html.indexOf('alt="Beta"') < be.html.indexOf('alt="Gamma"') && /\/view/.test(be.text), 'previews in upload order, then the Download link');
   assert.equal((await (await notifyApi([rA, rB, rC])).json()).sent, 0); assert.equal(emails.length, nB + 1, 'replaying the same receipts sends nothing');
   assert.equal((await (await notifyApi(['garbage', 'a.b'])).json()).sent, 0); assert.equal(emails.length, nB + 1, 'forged receipts are ignored');
   const rD = await receiptOf(await uploadViaApi('Delta', { notify: false }));
@@ -234,6 +240,18 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await new Promise((r) => setTimeout(r, 400));
   assert.equal(emails.length, nUi + 1, 'upload page sends ONE email for two files');
   assert.equal(emails.at(-1).subject, 'New images uploaded: small.png, exact.png');
+  assert.equal((emails.at(-1).html.match(/<img /g) || []).length, 2, 'two previews from the real browser-made thumbnails');
+  const thumbs = [...fake.buckets.media.keys()].filter((k) => k.endsWith('-thumb.jpg') && !baseIds.some((id) => k.includes(id)));
+  assert.ok(thumbs.length >= 2); for (const k of thumbs.slice(-2)) { const buf = fake.buckets.media.get(k).data; assert.equal(probe(buf), '480,270'); assert.ok(buf.length < 120000, 'thumbnail is small'); }
+  if (fs.existsSync(`${FX}/vid.webm`)) { // video preview frame (needs a codec this browser can decode)
+    await up2.reload(); await up2.waitForSelector('#drop');
+    await up2.setInputFiles('#pick', [`${FX}/vid.webm`]); await up2.click('#send');
+    await up2.waitForFunction(() => /Uploaded/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 30000 });
+    const vrow = fake.tables.items.find((i) => i.original_name === 'vid.webm');
+    assert.ok(fake.buckets.media.has(`${vrow.week_key}/${vrow.id}-thumb.jpg`), 'video got a preview frame'); assert.equal(probe(fake.buckets.media.get(`${vrow.week_key}/${vrow.id}-thumb.jpg`).data), '480,270');
+    await aapi2('delete', { id: vrow.id }); assert.ok(!fake.buckets.media.has(`${vrow.week_key}/${vrow.id}-thumb.jpg`), 'deleting a file removes its preview');
+    console.log('✓ video preview frame made in the browser');
+  }
   await up2.close();
   console.log('✓ upload page: 2 files -> 1 email');
   for (const it of fake.tables.items.filter((i) => i.week_key === d.weekKey && !baseIds.includes(i.id))) await aapi2('delete', { id: it.id });
@@ -302,6 +320,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const vcall = (a, b = {}, cookie = '') => fetch(B + '/api/view', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
   const acall = (a, b = {}, cookie = '') => fetch(B + '/api/admin', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
   const itemsBefore = fake.tables.items.length;
+  assert.equal((await aapi2('settings-put', { viewerPassword: '' })).status, 200);
   const off = await vcall('login', { password: 'anything' }); assert.equal(off.status, 401); assert.match((await off.json()).error, /not been turned on/);
   assert.equal((await aapi2('settings-put', { viewerPassword: 'volunteer1' })).status, 200);
   assert.equal((await vcall('items')).status, 401, 'not signed in');
@@ -312,8 +331,10 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal(vi.items.length, 3);
   assert.deepEqual(vi.items.map((i) => i.id), uploadOrder, 'volunteer page: first uploaded first');
   for (const it of vi.items) { for (const k of ['uploader', 'hidden', 'order', 'customDuration', 'createdAt']) assert.ok(!(k in it), `viewer items hide ${k}`); }
-  const vdl = await (await vcall('download', { id: vi.items[0].id, which: 'original' }, vck)).json(); assert.match(vdl.url, /\/object\/sign\/originals\//);
-  assert.equal((await (await vcall('download-all', { week: vi.week, which: 'media' }, vck)).json()).files.length, 3);
+  const vdl = await (await vcall('download', { id: vi.items[0].id, which: 'original' }, vck)).json(); assert.match(vdl.url, /\/object\/sign\/media\//, 'viewer asking for the original still gets the screen-ready file');
+  const vall = await (await vcall('download-all', { week: vi.week, which: 'original' }, vck)).json();
+  assert.equal(vall.files.length, 3); assert.ok(vall.files.every((f) => /\/object\/sign\/media\//.test(f.url)), 'download-all never includes originals for volunteers');
+  assert.ok(!/original/i.test(vall.zipName));
   // the viewer cookie must not unlock ANY admin action
   for (const [a, extra] of [['items', {}], ['settings-get', {}], ['settings-put', { uploadCode: 'x' }], ['delete', { id: vi.items[0].id }], ['update', { id: vi.items[0].id, title: 'hacked' }], ['move', { id: vi.items[0].id, dir: 'up' }], ['bg-reset', {}], ['purge', {}], ['notify-test', { email: 'a@b.co' }]]) {
     assert.equal((await acall(a, extra, vck)).status, 401, `viewer cannot ${a}`);
@@ -342,10 +363,13 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal(await vp.locator('#items input, #items textarea, #items button:has-text("Delete"), #items button:has-text("Hide")').count(), 0, 'no editing controls');
   assert.equal(await vp.locator('a[href="/admin"]').count(), 0, 'no link to admin');
   await vp.screenshot({ path: `${OUT}/view.png` });
-  await vp.click('.item .caret'); await vp.waitForSelector('.menu:not([hidden]) >> text=Original'); await vp.keyboard.press('Escape');
-  const [vdlz] = await Promise.all([vp.waitForEvent('download'), vp.click('#dlall .main')]);
+  assert.equal(await vp.locator('.caret, .menu, .split').count(), 0, 'no dropdown arrows anywhere');
+  assert.deepEqual(await vp.locator('.item .actions button').allTextContents(), ['Download', 'Download', 'Download']);
+  assert.equal(await vp.locator('#dlall button').textContent(), 'Download all');
+  const [vdlz] = await Promise.all([vp.waitForEvent('download'), vp.click('#dlall button')]);
   const vzf = path.join(OUT, 'view.zip'); await vdlz.saveAs(vzf);
-  assert.equal(execFileSync('unzip', ['-Z1', vzf]).toString().trim().split('\n').length, 3);
+  const vnames = execFileSync('unzip', ['-Z1', vzf]).toString().trim().split('\n'); assert.equal(vnames.length, 3);
+  assert.equal(probe(execFileSync('unzip', ['-p', vzf, vnames[0]], { maxBuffer: 1 << 26 })), '1920,1080', 'zip contains the screen-ready version');
   await vp.evaluate(() => loadItems()); assert.equal((await vp.$$('.item')).length, 3);
   await vp.click('#out'); await vp.waitForSelector('#lf:visible');
   await vctx.close();

@@ -17,8 +17,8 @@ const DEFAULTS = {
   transition: 'fade',
   uploadCode: '',
   viewerPassword: '',    // password for the read-only volunteer page (/view); blank = page disabled
-  emailSubject: 'New {TYPE} uploaded: {TITLE}', // placeholders: {TYPE} {TITLE} {FILE} {SUNDAY} {DESCRIPTION} {COUNT}
-  emailIntro: '',        // optional message shown at the top of the alert email
+  emailSubject: 'New {TYPE} uploaded: {TITLE}', // placeholders: {TYPE} {TITLE} {FILE} {SUNDAY} {DESCRIPTION} {COUNT} {PASSWORD}
+  emailIntro: 'New media has been uploaded! To access your downloads use password - {PASSWORD}', // the email message
   notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)
   uploadsOpen: true,
   keepPastWeeks: 0,      // 0 = files are deleted as soon as the week is over
@@ -177,50 +177,54 @@ const siteUrl = (req) => {
   return host ? `${req.headers['x-forwarded-proto'] || 'https'}://${host}` : '';
 };
 // Known placeholders are stored/shown in CAPITALS ({TITLE}); typing {title} also works.
-const PLACEHOLDER_RE = /\{(type|title|file|sunday|description|count)\}/gi;
+const PLACEHOLDER_RE = /\{(type|title|file|sunday|description|count|password)\}/gi;
 const upperPlaceholders = (str) => String(str || '').replace(PLACEHOLDER_RE, (m, k) => `{${k.toUpperCase()}}`);
 
 // {placeholders} usable in the email subject and intro message. Unknown ones are left as typed.
 const fill = (str, vars) => String(str || '').replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in vars ? vars[k.toLowerCase()] : m));
 
-// One email can cover several files (everything uploaded in one batch). Accepts one item or an array.
-function buildNotification(s, req, input) {
+// Resolves a small preview image URL for an upload, if its thumbnail was uploaded (older uploads have none).
+async function thumbResolver(rows) {
+  const names = {};
+  for (const w of [...new Set(rows.map((r) => r.week_key))]) {
+    const { data } = await sb().storage.from('media').list(w, { limit: 1000 });
+    names[w] = new Set((data || []).map((f) => f.name));
+  }
+  return (it) => (names[it.week_key] && names[it.week_key].has(`${it.id}-thumb.jpg`) ? `${publicUrl(`${it.week_key}/${it.id}-thumb.jpg`)}?v=${it.version}` : null);
+}
+
+// The alert email: your message, small previews of the media, and a Download button.
+// Covers one file or a whole batch. opts.thumbUrl(item) -> url | null.
+function buildNotification(s, req, input, opts = {}) {
   const items = Array.isArray(input) ? input : [input];
   const n = items.length, first = items[0];
-  const sunday = sundayOf(first.week_key);
-  const when = new Date(sunday + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const when = new Date(sundayOf(first.week_key) + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
   const kind = new Set(items.map((i) => i.kind)).size === 1 ? first.kind : 'file';
-  const type = n > 1 ? `${kind}s` : kind;
   const label = (it) => oneLine(it.title) || oneLine(it.original_name) || `a ${it.kind}`;
   const vars = {
-    type, count: String(n), title: items.map(label).join(', '),
+    type: n > 1 ? `${kind}s` : kind, count: String(n), title: items.map(label).join(', '),
     file: items.map((i) => oneLine(i.original_name)).filter(Boolean).join(', '), sunday: when,
     description: items.map((i) => oneLine(i.description)).filter(Boolean).join(' · '),
+    password: s.viewerPassword || '(ask an admin)',
   };
   const subject = oneLine(fill(s.emailSubject || DEFAULTS.emailSubject, vars)).slice(0, 150) || oneLine(fill(DEFAULTS.emailSubject, vars)).slice(0, 150);
-  const intro = fill(s.emailIntro, vars).trim();
+  const message = fill((s.emailIntro || '').trim() || DEFAULTS.emailIntro, vars).trim();
   const link = siteUrl(req) + '/view'; // volunteer page: asks for the viewer password, then lists + downloads files
-  const heading = n > 1 ? `New ${type} uploaded (${n})` : `New ${kind} uploaded`;
-  const MAX_LISTED = 20;
-  let textBody, htmlBody;
-  if (n === 1) {
-    const rows = [['Type', first.kind === 'video' ? 'Video' : 'Image'], ['Title', first.title], ['Description', first.description], ['File', first.original_name], ['For', `Sunday, ${when}`]].filter((r) => r[1]);
-    textBody = rows.map((r) => `${r[0]}: ${r[1]}`).join('\n');
-    htmlBody = rows.map((r) => `<p style="margin:4px 0"><b>${esc(r[0])}:</b> ${esc(r[1])}</p>`).join('');
-  } else {
-    const shown = items.slice(0, MAX_LISTED), more = n - shown.length;
-    textBody = `For: Sunday, ${when}\n\n` + shown.map((it, i) => [`${i + 1}. ${label(it)}`, it.description && `   ${oneLine(it.description)}`, it.original_name && it.title && `   File: ${oneLine(it.original_name)}`].filter(Boolean).join('\n')).join('\n\n') + (more ? `\n\n…and ${more} more` : '');
-    htmlBody = `<p style="margin:4px 0 12px"><b>For:</b> Sunday, ${esc(when)}</p>` +
-      shown.map((it) => `<p style="margin:0 0 10px"><b>${esc(label(it))}</b>` + (it.description ? `<br>${esc(oneLine(it.description))}` : '') +
-        (it.original_name && it.title ? `<br><span style="color:#4c6479;font-size:13px">${esc(oneLine(it.original_name))}</span>` : '') + '</p>').join('') +
-      (more ? `<p style="margin:0 0 10px;color:#4c6479">…and ${more} more</p>` : '');
-  }
+  const MAX_SHOWN = 6, shown = items.slice(0, MAX_SHOWN), more = n - shown.length;
+  const tile = 'display:inline-block;width:150px;vertical-align:top;margin:0 8px 8px 0;border-radius:10px;';
+  const previews = shown.map((it) => {
+    const url = opts.thumbUrl && opts.thumbUrl(it);
+    return url
+      ? `<img src="${esc(url)}" alt="${esc(label(it))}" width="150" style="${tile}height:auto;border:1px solid #d7e1ea;background:#eef3f8">`
+      : `<span style="${tile}height:84px;line-height:84px;text-align:center;background:#e8eff6;color:#4c6479;font-size:13px">${it.kind === 'video' ? '▶ Video' : 'Photo'}</span>`;
+  }).join('');
   return {
     subject,
-    text: (intro ? intro + '\n\n' : '') + textBody + `\n\nDownload: ${link}`,
-    html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px"><h2 style="margin:0 0 12px">${esc(heading)}</h2>` +
-      (intro ? `<p style="margin:0 0 14px">${esc(intro).replace(/\n/g, '<br>')}</p>` : '') + htmlBody +
-      `<p style="margin:18px 0"><a href="${esc(link)}" style="background:#17436b;color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:600">Download</a></p></div>`,
+    text: `${message}\n\nDownload: ${link}`,
+    html: `<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#0b2136;max-width:520px">` +
+      `<p style="font-size:18px;line-height:1.45;margin:0 0 18px">${esc(message).replace(/\n/g, '<br>')}</p>` +
+      `<div style="margin:0 0 6px">${previews}</div>` + (more ? `<p style="margin:0 0 6px;color:#4c6479;font-size:14px">+ ${more} more</p>` : '') +
+      `<p style="margin:16px 0"><a href="${esc(link)}" style="background:#17436b;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none;font-weight:600;display:inline-block">Download</a></p></div>`,
   };
 }
 
@@ -229,7 +233,7 @@ async function notifyUploads(s, req, items) {
   try {
     const to = parseEmails(s.notifyEmail).filter((e) => EMAIL_RE.test(e)).slice(0, MAX_NOTIFY);
     if (!to.length || !items.length) return;
-    await sendEmail({ to, ...buildNotification(s, req, items) });
+    await sendEmail({ to, ...buildNotification(s, req, items, { thumbUrl: await thumbResolver(items).catch(() => null) }) });
   } catch (e) { console.error('notifyUploads', e.message); }
 }
 
@@ -259,5 +263,5 @@ async function purgeOld(s) {
 module.exports = {
   sb, inUploadOrder, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
-  wrap, exists, removeObjects, purgeOld, upperPlaceholders, emailDiagnostics, buildNotification, notifyUploads, EMAIL_RE, parseEmails, oneLine, sendEmail,
+  wrap, exists, removeObjects, purgeOld, upperPlaceholders, emailDiagnostics, buildNotification, notifyUploads, siteUrl, EMAIL_RE, parseEmails, oneLine, sendEmail,
 };

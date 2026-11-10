@@ -78,21 +78,24 @@ const fail=(o,m)=>{o.st.textContent='Failed: '+m;o.st.style.color='var(--bad)';o
 async function upload(o){
   o.rm.hidden=true;o.title.disabled=o.desc.disabled=true;o.st.style.color='';o.st.className='small mute';o.prog.hidden=false;o.bar.style.width='15%';
   try{
-    let blob=o.f,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
+    let blob=o.f,thumb=null,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
+    BG=BG||await Fit.loadBg(INFO.bg);
     if(o.kind==='image'){
       o.st.textContent='Preparing image for the screen…';
-      BG=BG||await Fit.loadBg(INFO.bg);
-      const r=await Fit.fitImage(o.f,BG);blob=r.blob;meta={srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame,outExt:r.ext};
+      const r=await Fit.fitImage(o.f,BG);blob=r.blob;thumb=r.thumb;meta={srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame,outExt:r.ext};
+    }else{
+      thumb=await Fit.videoThumb(o.f,BG).catch(()=>null);   // small preview for the alert email (optional)
     }
     o.bar.style.width='35%';o.st.textContent='Uploading…';
-    const s=await post('/api/upload',{action:'sign',kind:o.kind,ext,outExt:meta.outExt,size:o.f.size});
+    const s=await post('/api/upload',{action:'sign',kind:o.kind,ext,outExt:meta.outExt,size:o.f.size,thumb:!!thumb});
     const sj=await s.json();if(!s.ok)throw new Error(sj.error||'Could not start upload');
-    // images: [original, fitted]; videos: [video]
-    const bodies=o.kind==='image'?[o.f,blob]:[o.f];
+    // images: [original, fitted, thumb?]; videos: [video, thumb?]
+    const bodies=o.kind==='image'?[o.f,blob,thumb]:[o.f,thumb];
     for(let i=0;i<sj.uploads.length;i++){
       const u=sj.uploads[i];
+      const isThumb=/-thumb\.jpg$/.test(u.path);
       const {error}=await SB.storage.from(u.bucket).uploadToSignedUrl(u.path,u.token,bodies[i],{contentType:bodies[i].type||undefined});
-      if(error)throw new Error(error.message||'Upload failed');
+      if(error&&!isThumb)throw new Error(error.message||'Upload failed');   // a missing preview must never fail an upload
       o.bar.style.width=(35+(i+1)/sj.uploads.length*55)+'%';
     }
     const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,originalName:o.f.name,...meta});

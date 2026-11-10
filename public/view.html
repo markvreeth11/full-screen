@@ -41,7 +41,7 @@ async function loadItems(){
   lastSig=sig;
 }
 function card(it){
-  const dl=which=>async()=>{try{const r=await api('download',{id:it.id,which});location.href=r.url}catch(e){alert(e.message)}};
+  const dl=async()=>{try{const r=await api('download',{id:it.id});location.href=r.url}catch(e){alert(e.message)}};
   const media=it.kind==='video'
     ?h('video',{src:it.url,controls:true,preload:'metadata'})
     :h('a',{href:it.url,target:'_blank',rel:'noopener',title:'Open full size'},h('img',{src:it.url,alt:it.title||it.originalName||''}));
@@ -51,11 +51,11 @@ function card(it){
     h('h3',{style:'margin:0 0 4px'},it.title||it.originalName||'Untitled'),
     ...(it.description?[h('p',{style:'margin:0 0 6px'},it.description)]:[]),
     h('div',{className:'small mute'},meta),
-    h('div',{className:'actions'},split('Download',dl('media'),it.hasOriginal?[['Screen-ready',dl('media')],['Original',dl('original')]]:null))));
+    h('div',{className:'actions'},h('button',{className:'ghost sm',onclick:dl},'Download'))));
 }
 $('#week').onchange=e=>{week=e.target.value;lastSig='';loadItems()};
-const downloadAll=which=>zipDownload(()=>api('download-all',{week,which}),t=>$('#dlst').textContent=t);
-$('#dlall').replaceChildren(split('Download all',()=>downloadAll('media'),[['Screen-ready (.zip)',()=>downloadAll('media')],['Originals (.zip)',()=>downloadAll('original')]],true),h('span',{id:'dlst',className:'small mute',style:'margin-left:10px'}));
+const downloadAll=()=>zipDownload(()=>api('download-all',{week}),t=>$('#dlst').textContent=t);
+$('#dlall').replaceChildren(h('button',{className:'ghost sm',onclick:downloadAll},'Download all'),h('span',{id:'dlst',className:'small mute',style:'margin-left:10px'}));
 
 async function boot(){
   const me=await (await fetch('/api/view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({a:'me'})})).json();
