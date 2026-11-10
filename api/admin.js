@@ -46,11 +46,12 @@ module.exports = c.wrap(async (req, res) => {
     }
     case 'move': {
       const it = await one(b.id); if (!it) return res.status(404).json({ error: 'Not found' });
-      const { data: list } = await sb.from('items').select('id,sort_order').eq('week_key', it.week_key).order('sort_order', { ascending: true });
-      const i = list.findIndex((x) => x.id === it.id), j = b.dir === 'up' ? i - 1 : i + 1;
-      if (list[j]) {
-        await sb.from('items').update({ sort_order: list[j].sort_order }).eq('id', list[i].id);
-        await sb.from('items').update({ sort_order: list[i].sort_order }).eq('id', list[j].id);
+      const { data: list } = await c.inUploadOrder(sb.from('items').select('id,sort_order').eq('week_key', it.week_key));
+      const ids = list.map((x) => x.id), i = ids.indexOf(it.id), j = b.dir === 'up' ? i - 1 : i + 1;
+      if (ids[j]) {
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        // give every item in the week a clean, unique position so ties can never block a move
+        await Promise.all(ids.map((id, n) => sb.from('items').update({ sort_order: n + 1 }).eq('id', id)));
       }
       return res.json({ ok: true });
     }

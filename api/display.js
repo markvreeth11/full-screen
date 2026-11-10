@@ -2,7 +2,7 @@ const c = require('./_lib/common');
 module.exports = c.wrap(async (req, res) => {
   const s = await c.getSettings();
   const week = c.currentWeek(s);
-  const { data, error } = await c.sb().from('items').select('*').eq('week_key', week).eq('hidden', false).order('sort_order', { ascending: true });
+  const { data, error } = await c.inUploadOrder(c.sb().from('items').select('*').eq('week_key', week).eq('hidden', false));
   if (error) throw error;
   res.json({
     weekKey: week, bg: c.bgUrl(s),

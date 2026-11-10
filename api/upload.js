@@ -50,7 +50,8 @@ module.exports = c.wrap(async (req, res) => {
       uploader: c.clip(b.uploader, 80), original_name: c.clip(b.originalName, 200),
       original_path: t.original, media_path: t.media, src_w: num(b.srcW), src_h: num(b.srcH),
       full_frame: t.kind === 'image' ? !!b.fullFrame : null, duration: +b.duration > 0 ? +b.duration : null,
-      sort_order: ((last && last[0] && last[0].sort_order) || 0) + 1, version: Date.now(),
+      // strictly after everything already uploaded this week (timestamp-based, so never ties or goes backwards)
+      sort_order: Math.max(Date.now(), ((last && last[0] && last[0].sort_order) || 0) + 1), version: Date.now(),
     });
     if (error) throw error;
     await c.notifyUpload(s, req, { week_key: week, kind: t.kind, title: c.clip(b.title, 120), description: c.clip(b.description, 400), original_name: c.clip(b.originalName, 200) });

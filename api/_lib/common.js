@@ -87,6 +87,10 @@ const wrap = (fn) => async (req, res) => {
   }
 };
 
+// The one definition of the order files appear in: first uploaded -> last uploaded (unless an admin
+// moved something). created_at / id are tie-breakers so the order is always deterministic.
+const inUploadOrder = (q) => q.order('sort_order', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true });
+
 // ---------- storage helpers ----------
 async function exists(bucket, p) {
   const i = p.lastIndexOf('/');
@@ -229,7 +233,7 @@ async function purgeOld(s) {
 }
 
 module.exports = {
-  sb, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
+  sb, inUploadOrder, DEFAULTS, MAX_IMAGE_MB, MAX_NOTIFY, getSettings, saveSettings, currentWeek, weekRange, sundayOf, publicUrl, bgUrl, clip,
   cookies, mkToken, validToken, setCookie, isAdmin, canUpload, mkTicket, readTicket, safeEq,
   wrap, exists, removeObjects, purgeOld, emailDiagnostics, buildNotification, EMAIL_RE, parseEmails, oneLine, sendEmail, notifyUpload,
 };

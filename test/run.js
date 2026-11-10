@@ -229,6 +229,30 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
   for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks'].includes(i.title))) await aapi2('delete', { id: it.id });
 
+  // --- order: first uploaded -> last uploaded ---
+  const uploadOrder = fake.tables.items.filter((i) => i.week_key === d.weekKey).map((i) => i.id); // insertion order = upload order
+  assert.deepEqual((await (await fetch(B + '/api/display')).json()).items.map((i) => i.id), uploadOrder, 'screen: first uploaded first');
+  assert.deepEqual((await aapi2('items')).body.items.map((i) => i.id), uploadOrder, 'admin: first uploaded first');
+  // a new upload always lands last, even after an admin moved things around
+  assert.equal((await aapi2('move', { id: uploadOrder[0], dir: 'down' })).status, 200);
+  assert.deepEqual((await aapi2('items')).body.items.map((i) => i.id), [uploadOrder[1], uploadOrder[0], uploadOrder[2]], 'manual move still works');
+  assert.equal((await uploadViaApi('Late')).status(), 200);
+  const afterLate = (await aapi2('items')).body.items;
+  assert.equal(afterLate.at(-1).title, 'Late', 'new upload goes to the end');
+  await aapi2('delete', { id: afterLate.at(-1).id });
+  assert.equal((await aapi2('move', { id: uploadOrder[0], dir: 'up' })).status, 200);
+  assert.deepEqual((await aapi2('items')).body.items.map((i) => i.id), uploadOrder, 'moved back');
+  // items with the SAME sort position are ordered by upload time, and can still be moved
+  const tw = '2026-10-26';
+  for (const [id, at] of [['t2', '2026-10-26T10:00:05Z'], ['t1', '2026-10-26T10:00:01Z']]) {
+    fake.tables.items.push({ id, week_key: tw, kind: 'image', media_path: `${tw}/${id}.jpg`, hidden: false, version: 1, sort_order: 5, created_at: at });
+  }
+  assert.deepEqual((await aapi2('items', { week: tw })).body.items.map((i) => i.id), ['t1', 't2'], 'ties: earlier upload first');
+  assert.equal((await aapi2('move', { id: 't1', dir: 'down' })).status, 200);
+  assert.deepEqual((await aapi2('items', { week: tw })).body.items.map((i) => i.id), ['t2', 't1'], 'a move works even when positions tied');
+  assert.deepEqual(fake.tables.items.filter((i) => i.week_key === tw).map((i) => i.sort_order).sort(), [1, 2], 'positions renumbered uniquely');
+  console.log('✓ default order is first uploaded → last uploaded (screen, admin); new uploads go last; ties handled');
+
   // --- volunteer viewer (read-only login) ---
   const vcall = (a, b = {}, cookie = '') => fetch(B + '/api/view', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
   const acall = (a, b = {}, cookie = '') => fetch(B + '/api/admin', { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ a, ...b }) });
@@ -241,6 +265,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const vck = vl.headers.get('set-cookie').split(';')[0]; assert.match(vck, /^vwr=/);
   const vi = await (await vcall('items', {}, vck)).json();
   assert.equal(vi.items.length, 3);
+  assert.deepEqual(vi.items.map((i) => i.id), uploadOrder, 'volunteer page: first uploaded first');
   for (const it of vi.items) { for (const k of ['uploader', 'hidden', 'order', 'customDuration', 'createdAt']) assert.ok(!(k in it), `viewer items hide ${k}`); }
   const vdl = await (await vcall('download', { id: vi.items[0].id, which: 'original' }, vck)).json(); assert.match(vdl.url, /\/object\/sign\/originals\//);
   assert.equal((await (await vcall('download-all', { week: vi.week, which: 'media' }, vck)).json()).files.length, 3);

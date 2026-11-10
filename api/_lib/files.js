@@ -10,7 +10,7 @@ async function weeksAndItems(s, weekParam) {
   counts[cur] = counts[cur] || 0;
   const weeks = Object.keys(counts).sort().reverse().map((k) => ({ key: k, count: counts[k], sunday: c.sundayOf(k) }));
   const key = counts[weekParam] !== undefined ? weekParam : cur;
-  const { data } = await c.sb().from('items').select('*').eq('week_key', key).order('sort_order', { ascending: true });
+  const { data } = await c.inUploadOrder(c.sb().from('items').select('*').eq('week_key', key));
   return { current: cur, week: key, range: c.weekRange(key), sunday: c.sundayOf(key), weeks, rows: data || [] };
 }
 
@@ -31,7 +31,7 @@ async function downloadUrl(it, which) {
 // Everything in one week as a list of signed links; the browser zips them.
 async function downloadAllFiles(s, weekParam, which) {
   const wk = /^\d{4}-\d{2}-\d{2}$/.test(weekParam || '') ? weekParam : c.currentWeek(s);
-  const { data } = await c.sb().from('items').select('*').eq('week_key', wk).order('sort_order', { ascending: true });
+  const { data } = await c.inUploadOrder(c.sb().from('items').select('*').eq('week_key', wk));
   const files = [];
   for (const [n, it] of (data || []).entries()) {
     const orig = which === 'original' && it.original_path;

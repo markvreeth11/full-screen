@@ -12,7 +12,7 @@ class Q {
   upsert(r) { this.op = 'upsert'; this.row = r; return this; }
   eq(c, v) { this.f.push((r) => r[c] === v); return this; }
   lt(c, v) { this.f.push((r) => r[c] < v); return this; }
-  order(c, o = {}) { this.ord = [c, o.ascending !== false]; return this; }
+  order(c, o = {}) { (this.ords = this.ords || []).push([c, o.ascending !== false]); return this; }
   limit(n) { this.lim = n; return this; }
   maybeSingle() { this.single = true; return this; }
   then(res, rej) { return Promise.resolve(this.run()).then(res, rej); }
@@ -30,7 +30,7 @@ class Q {
     if (this.op === 'update') { rows.filter(m).forEach((r) => Object.assign(r, this.patch)); return { error: null }; }
     if (this.op === 'delete') { tables[this.t] = rows.filter((r) => !m(r)); return { error: null }; }
     let out = rows.filter(m).map((r) => ({ ...r }));
-    if (this.ord) { const [c, asc] = this.ord; out.sort((a, b) => (a[c] > b[c] ? 1 : a[c] < b[c] ? -1 : 0) * (asc ? 1 : -1)); }
+    if (this.ords) out.sort((a, b) => { for (const [c, asc] of this.ords) { const d = (a[c] > b[c] ? 1 : a[c] < b[c] ? -1 : 0) * (asc ? 1 : -1); if (d) return d; } return 0; });
     if (this.lim) out = out.slice(0, this.lim);
     return { data: this.single ? out[0] || null : out, error: null };
   }
