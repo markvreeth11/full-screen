@@ -37,8 +37,9 @@
     <input type="text" id="viewerPassword" autocomplete="off" placeholder="e.g. a password to share with volunteers">
     <p class="small mute">Volunteers sign in at <a id="viewlink" href="/view" target="_blank">/view</a> to see and download uploads. They can't edit, delete or change anything.</p>
     <label>Email me when a file is uploaded <span class="mute">(blank = no emails)</span></label>
-    <div class="row"><input type="text" id="notifyEmail" class="grow" placeholder="you@example.com" autocomplete="email"><button class="ghost sm" id="testmail" type="button">Send test email</button></div>
-    <p class="small mute" id="mailst">Separate several addresses with commas (up to 20).</p>
+    <div class="row"><div class="chips grow" id="chips"><input type="text" id="chipInput" placeholder="Type an email and press Enter" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="email" aria-label="Email address to alert"></div><button class="ghost sm" id="testmail" type="button">Send test email</button></div>
+    <input type="hidden" id="notifyEmail">
+    <p class="small mute" id="mailst">Type an address and press Enter to add it. Everyone listed gets one email and can see who else received it (up to 20).</p>
     <label for="emailSubject">Email subject</label>
     <input type="text" id="emailSubject" maxlength="150" placeholder="New {TYPE} uploaded: {TITLE}">
     <label for="emailIntro">Email message</label>
@@ -111,17 +112,52 @@ $('#week').onchange=e=>{week=e.target.value;loadItems()};
 async function loadSettings(){
   const s=await api('settings-get');$('#bgp').src=s.bg;
   for(const k of KEYS)$('#'+k).value=(k==='emailSubject'||k==='emailIntro')?String(s[k]||'').replace(/\{(type|title|file|sunday|description|count|password)\}/gi,(m,w)=>'{'+w.toUpperCase()+'}'):s[k];
+  mails=[];addMails($('#notifyEmail').value);
   $('#uploadsOpen').checked=s.uploadsOpen;
   $('#wk').textContent=`Currently collecting uploads for ${fmt(s.sunday)}.`;
 }
 $('#rolloverDay').replaceChildren(...DAYS.map((d,i)=>h('option',{value:i},d)));
 try{$('#tzs').replaceChildren(...Intl.supportedValuesOf('timeZone').map(z=>h('option',{value:z})))}catch{}
+// ---- alert recipients as removable tags: type an address, press Enter, repeat ----
+const MAIL_RE=/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/,MAIL_HINT='Type an address and press Enter to add it. Everyone listed gets one email and can see who else received it (up to 20).';
+let mails=[];
+const chipInput=$('#chipInput');
+function mailMsg(t,bad){const st=$('#mailst');st.className='small'+(bad?'':' mute');st.style.color=bad?'var(--danger)':'';st.style.whiteSpace='';st.textContent=t}
+function renderMails(){
+  document.querySelectorAll('#chips .chip').forEach(c=>c.remove());
+  mails.forEach((m,i)=>$('#chips').insertBefore(h('span',{className:'chip'},m,h('button',{type:'button',className:'x','aria-label':'Remove '+m,title:'Remove',onclick:()=>{mails.splice(i,1);renderMails();chipInput.focus()}},'×')),chipInput));
+  $('#notifyEmail').value=mails.join(', ');
+}
+function addMails(text){   // false if something typed isn't a valid address
+  let ok=true;
+  for(const raw of String(text).split(/[\s,;]+/).filter(Boolean)){
+    const m=raw.replace(/^<|>$/g,'');
+    if(!MAIL_RE.test(m)){ok=false;mailMsg('"'+raw+'" isn\'t a valid email address.',true);continue}
+    if(mails.some(x=>x.toLowerCase()===m.toLowerCase()))continue;
+    if(mails.length>=20){ok=false;mailMsg('You can add up to 20 addresses.',true);break}
+    mails.push(m);
+  }
+  renderMails();if(ok)mailMsg(MAIL_HINT);return ok;
+}
+const commitMails=()=>{if(chipInput.value.trim()){if(!addMails(chipInput.value))return false;chipInput.value=''}return true};   // include a half-typed address
+chipInput.addEventListener('keydown',e=>{
+  if(['Enter',',',';',' ','Tab'].includes(e.key)&&chipInput.value.trim()){
+    if(e.key!=='Tab')e.preventDefault();
+    if(addMails(chipInput.value))chipInput.value='';else e.preventDefault();
+  }else if(e.key==='Backspace'&&!chipInput.value&&mails.length){mails.pop();renderMails()}
+  else if(e.key==='Enter')e.preventDefault();
+});
+chipInput.addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\s,;]/.test(t.trim())){e.preventDefault();addMails(t)}});
+chipInput.addEventListener('blur',()=>{if(chipInput.value.trim()&&addMails(chipInput.value))chipInput.value=''});
+$('#chips').addEventListener('click',e=>{if(e.target===$('#chips'))chipInput.focus()});
+
 $('#save').onclick=async()=>{
+  if(!commitMails())return;
   const b={};for(const k of KEYS)b[k]=$('#'+k).value;
   b.uploadsOpen=$('#uploadsOpen').checked;
   try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
   setTimeout(()=>$('#saved').textContent='',3000)};
-$('#testmail').onclick=async()=>{const st=$('#mailst');st.className='small mute';st.style.color='';st.style.whiteSpace='';st.textContent='Sending…';
+$('#testmail').onclick=async()=>{if(!commitMails())return;const st=$('#mailst');st.className='small mute';st.style.color='';st.style.whiteSpace='';st.textContent='Sending…';
   try{const r=await api('notify-test',{email:$('#notifyEmail').value,emailSubject:$('#emailSubject').value,emailIntro:$('#emailIntro').value});st.className='small ok-text';st.style.whiteSpace='pre-line';st.textContent='Test email sent to '+(r.sent||[]).join(', ')+' ✓ — check each inbox (and spam). Click "Save settings" to keep your changes.'}
   catch(e){st.className='small';st.style.color='var(--danger)';st.style.whiteSpace='pre-line';st.textContent='Could not send: '+e.message}};
 $('#purge').onclick=async()=>{if(!confirm('Delete all files from finished weeks now?'))return;

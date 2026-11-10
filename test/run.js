@@ -140,6 +140,38 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await (await fetch(B + '/api/info')).json()).needsCode, true);
   assert.equal((await post('/api/upload', { action: 'sign', kind: 'image', size: 10 })).status, 401);
   console.log('✓ upload code enforced server-side');
+
+  // recipients as tags: type, Enter, repeat; all saved ones stay visible
+  const settingsNow = () => ad.evaluate(async () => (await fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'settings-get' }) })).json());
+  const chipTexts = () => ad.locator('#chips .chip').evaluateAll((els) => els.map((e) => e.firstChild.textContent));
+  const saveSettings = async () => { await ad.evaluate(() => { document.querySelector('#saved').textContent = ''; }); await ad.click('#save'); await ad.waitForFunction(() => /Saved|valid|up to/i.test(document.querySelector('#saved').textContent)); };
+  await ad.fill('#chipInput', 'first@example.com'); await ad.press('#chipInput', 'Enter');
+  await ad.fill('#chipInput', 'second@example.com'); await ad.press('#chipInput', 'Enter');
+  assert.deepEqual(await chipTexts(), ['first@example.com', 'second@example.com'], 'each Enter adds a tag, earlier ones stay');
+  assert.equal(await ad.inputValue('#chipInput'), '', 'box clears for the next address');
+  await ad.fill('#chipInput', 'not-an-email'); await ad.press('#chipInput', 'Enter');
+  assert.equal((await chipTexts()).length, 2, 'invalid address is not added'); assert.match(await ad.textContent('#mailst'), /isn't a valid email/);
+  await ad.fill('#chipInput', 'FIRST@example.com'); await ad.press('#chipInput', 'Enter');
+  assert.equal((await chipTexts()).length, 2, 'duplicates ignored (case-insensitive)');
+  await ad.fill('#chipInput', ''); await ad.click('#chipInput');
+  await ad.evaluate(() => { const i = document.querySelector('#chipInput'); i.value = 'third@example.com, fourth@example.com fifth@example.com'; });
+  await ad.press('#chipInput', 'Enter');
+  assert.deepEqual(await chipTexts(), ['first@example.com', 'second@example.com', 'third@example.com', 'fourth@example.com', 'fifth@example.com'], 'several addresses at once are split into tags');
+  await ad.fill('#chipInput', 'half-typed@example.com'); // typed but Enter not pressed: Save must still include it
+  await saveSettings();
+  assert.equal((await settingsNow()).notifyEmail, 'first@example.com, second@example.com, third@example.com, fourth@example.com, fifth@example.com, half-typed@example.com');
+  await ad.reload(); await ad.waitForSelector('.item'); await ad.click('[data-t=set]');
+  assert.equal((await chipTexts()).length, 6, 'saved addresses are shown as tags after reload');
+  await ad.click('#chips .chip:nth-child(2) .x');
+  assert.equal((await chipTexts()).includes('second@example.com'), false, 'the x removes a tag');
+  await ad.focus('#chipInput'); await ad.press('#chipInput', 'Backspace');
+  assert.equal((await chipTexts()).length, 4, 'Backspace on an empty box removes the last tag');
+  await saveSettings();
+  assert.equal((await settingsNow()).notifyEmail, 'first@example.com, third@example.com, fourth@example.com, fifth@example.com');
+  for (let i = 0; i < 4; i++) await ad.click('#chips .chip .x'); await saveSettings();
+  assert.equal((await settingsNow()).notifyEmail, '', 'removing all tags turns alerts off');
+  await ad.screenshot({ path: `${OUT}/chips.png` });
+  console.log('✓ settings: email recipients are tags (Enter to add, x to remove, paste several, saved ones shown)');
   assert.equal((await ctx.request.post(B + '/api/code', { data: { code: 'grace' } })).status(), 200);
   const tooBig = await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'video', ext: 'mp4', size: 80 * 1048576 } });
   assert.equal(tooBig.status(), 400);
@@ -246,7 +278,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   for (const it of fake.tables.items.filter((i) => i.week_key === d.weekKey && !baseIds.includes(i.id))) await aapi2('delete', { id: it.id });
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
-  // --- email alerts via SMTP (Gmail-style): every recipient gets their OWN message ---
+  // --- email alerts via SMTP (Gmail-style): one email, everyone in To: ---
   const { SMTPServer } = require('smtp-server');
   const got = { msgs: [], refuse: null };
   const smtp = new SMTPServer({
@@ -265,23 +297,21 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const resendBefore = emails.length, sixList = six.split(', ');
   assert.equal((await uploadViaApi('ViaSmtp')).status(), 200);
   assert.equal(emails.length, resendBefore, 'Resend not used when SMTP is configured');
-  assert.equal(got.msgs.length, 6, 'six separate messages');
-  assert.deepEqual(got.msgs.map((m) => m.rcpt.join()).sort(), [...sixList].sort(), 'each message goes to exactly one recipient');
-  for (const m of got.msgs) {
-    assert.ok(m.raw.includes(`To: ${m.rcpt[0]}`), 'addressed to its own recipient');
-    assert.ok(sixList.filter((x) => x !== m.rcpt[0]).every((x) => !m.raw.includes(x)), 'never shows anyone else\'s address');
-    assert.match(m.raw, /Subject: New image uploaded: ViaSmtp/);
-  }
-  console.log('✓ SMTP (Gmail-style): each of the 6 recipients gets their own message');
+  assert.equal(got.msgs.length, 1, 'ONE email to everyone');
+  assert.deepEqual([...got.msgs[0].rcpt].sort(), [...sixList].sort(), 'all six are recipients');
+  const hdr = got.msgs[0].raw.split(/\r?\n\r?\n/)[0].replace(/\r?\n[ \t]+/g, ' '); // unfold headers
+  assert.ok(sixList.every((x) => new RegExp('^To:.*' + x.replace('.', '\\.'), 'm').test(hdr)), 'everyone is visible in the To: line');
+  assert.match(got.msgs[0].raw, /Subject: New image uploaded: ViaSmtp/);
+  console.log('✓ SMTP (Gmail-style): one email to all 6, everyone visible in To:');
   // one refused address must not stop the others, and the test button says exactly who failed
   got.msgs.length = 0; got.refuse = 'person3@example.com';
   const part = await aapi2('notify-test', { email: six });
   assert.equal(part.status, 502); assert.match(part.body.error, /Could not send to: person3@example\.com/);
-  assert.deepEqual(part.body.sent, sixList.filter((x) => x !== 'person3@example.com'), 'the other five were still delivered');
-  assert.equal(got.msgs.length, 5);
-  got.msgs.length = 0; assert.equal((await uploadViaApi('PartialOk')).status(), 200, 'a refused address never blocks an upload'); assert.equal(got.msgs.length, 5, 'the real alert still reaches everyone else');
+  assert.deepEqual([...part.body.sent].sort(), sixList.filter((x) => x !== 'person3@example.com').sort(), 'the other five still got it');
+  assert.equal(got.msgs.length, 1); assert.equal(got.msgs[0].rcpt.length, 5);
+  got.msgs.length = 0; assert.equal((await uploadViaApi('PartialOk')).status(), 200, 'a refused address never blocks an upload'); assert.equal(got.msgs[0].rcpt.length, 5, 'the real alert still reaches the others');
   got.refuse = null; got.msgs.length = 0;
-  const all = await aapi2('notify-test', { email: six }); assert.equal(all.status, 200); assert.deepEqual(all.body.sent, sixList, 'test reports every address it reached');
+  const all = await aapi2('notify-test', { email: six }); assert.equal(all.status, 200); assert.deepEqual([...all.body.sent].sort(), [...sixList].sort(), 'test reports every address it reached');
   console.log('✓ one refused address is reported by name and never stops the others');
   process.env.SMTP_PASS = 'wrong-password';
   const bad = await aapi2('notify-test', { email: 'you@example.com' });

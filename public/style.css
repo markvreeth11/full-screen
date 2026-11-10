@@ -138,3 +138,12 @@ button.sm,.btn.sm{padding:9px 15px;font-size:.85rem;border-radius:14px}
   .wrap{padding:16px 14px 56px}.file{grid-template-columns:1fr}.file .pv{width:100%}.two{grid-template-columns:1fr}
   .drop{padding:38px 16px}.hero .logo{width:80px;height:80px}
 }
+
+/* recipient tags (type an email, press Enter) */
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:7px 10px;border:1px solid var(--input-border);border-radius:14px;background:var(--input-bg);cursor:text;transition:box-shadow .2s,border-color .2s}
+.chips:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent)}
+.chips input{flex:1;min-width:190px;width:auto;border:0;background:transparent;padding:6px 4px;box-shadow:none;border-radius:0}
+.chips input:focus{border:0;box-shadow:none}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 5px 4px 12px;border-radius:999px;font-size:.92rem;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--fg)}
+.chip .x{width:22px;height:22px;padding:0;border-radius:50%;display:grid;place-items:center;font-size:16px;line-height:1;background:transparent;color:var(--muted);box-shadow:none}
+.chip .x:hover{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger);transform:none;filter:none}

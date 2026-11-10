@@ -43,7 +43,7 @@ Free plan limits: **50 MB per file**, 1 GB storage. Fine for photos; compress lo
 3. Deploy. Add your domain under *Settings → Domains* (HTTPS is automatic).
 
 ### 3. Email alerts (optional)
-Alerts go to up to 20 addresses (**Admin → Settings → Email me when a file is uploaded**, comma-separated). Use **one** of these ways to send:
+Alerts go to up to 20 addresses (**Admin → Settings → Email me when a file is uploaded**). Use **one** of these ways to send:
 
 **A. A Gmail account (no domain needed — easiest for several recipients)**
 1. In the Google account that will send the alerts, turn on **2-Step Verification** (myaccount.google.com → Security).
@@ -51,7 +51,7 @@ Alerts go to up to 20 addresses (**Admin → Settings → Email me when a file i
 3. In Vercel add `SMTP_USER` (the Gmail address) and `SMTP_PASS` (the app password), then redeploy.
 4. In Admin → Settings enter the addresses, click **Send test email**, then **Save settings**.
 
-The alert email says *"New media has been uploaded! To access your downloads use password - …"* (the volunteer viewer password), and ends with a **Download** button that opens `/view`. Alerts come from that Gmail address, and **each person gets their own email addressed to them** (nobody sees anyone else's address). In Settings, **Send test email** lists exactly who it reached and names any address the mail server refused. Other mail providers work too: also set `SMTP_HOST` (and `SMTP_PORT`, default 465). Some Google Workspace accounts block app passwords — use a regular Gmail account if so.
+The alert email says *"New media has been uploaded! To access your downloads use password - …"* (the volunteer viewer password), and ends with a **Download** button that opens `/view`. Alerts come from that Gmail address, and goes out as **one email to everyone on the list** (they can all see who else got it). In Settings, add each address by typing it and pressing **Enter** — saved addresses stay visible as tags you can remove with the ×. **Send test email** lists exactly who it reached and names any address the mail server refused. Other mail providers work too: also set `SMTP_HOST` (and `SMTP_PORT`, default 465). Some Google Workspace accounts block app passwords — use a regular Gmail account if so.
 
 **B. Resend (needs your own domain for more than one recipient)**
 1. Create an account at [resend.com](https://resend.com) → **API Keys → Create API Key**.
