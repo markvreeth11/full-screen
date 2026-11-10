@@ -31,7 +31,14 @@ let files=[],INFO,SB,BG;
 const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric'});
 
 async function init(){
-  INFO=await (await fetch('/api/info')).json();
+  try{await load()}catch(e){
+    document.body.append(h('div',{className:'wrap'},h('div',{className:'msg bad'},"Sorry, the upload page couldn't load. The site may still be getting set up. ("+e.message+")")));
+  }
+}
+async function load(){
+  const r=await fetch('/api/info');
+  if(!r.ok)throw new Error('server error '+r.status);
+  INFO=await r.json();
   $('#church').textContent=INFO.churchName;document.title='Share for Sunday · '+INFO.churchName;
   document.body.style.setProperty('--bgimg',`url(${INFO.bg})`);
   $('#week').textContent=`Upload for the week of ${fmt(INFO.range.start)} – ${fmt(INFO.range.end)}. Everything you add is shown on the screen this week, then deleted automatically.`;
