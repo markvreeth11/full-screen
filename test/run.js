@@ -147,11 +147,17 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
 
   // --- email alerts ---
   const aapi2 = (a, b = {}) => ad.evaluate(async ([a, b]) => { const r = await fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a, ...b }) }); return { status: r.status, body: await r.json() }; }, [a, b]);
-  const uploadViaApi = async (title) => {
+  const baseIds = fake.tables.items.map((i) => i.id);
+  const notifyApi = (receipts) => ctx.request.post(B + '/api/upload', { data: { action: 'notify', receipts } });
+  // uploads one file; unless notify:false, also sends the alert for it (a batch of one). Returns the "done" response.
+  const uploadViaApi = async (title, { notify = true } = {}) => {
     const sg = await (await ctx.request.post(B + '/api/upload', { data: { action: 'sign', kind: 'image', ext: 'png', outExt: 'png', size: 1234 } })).json();
     for (const u of sg.uploads) fake.buckets[u.bucket].set(u.path, { data: Buffer.from('x') });
-    return ctx.request.post(B + '/api/upload', { data: { action: 'done', ticket: sg.ticket, title, description: 'desc <b>bold</b>', originalName: 'pic.png', srcW: 10, srcH: 10, fullFrame: false } });
+    const done = await ctx.request.post(B + '/api/upload', { data: { action: 'done', ticket: sg.ticket, title, description: 'desc <b>bold</b>', originalName: 'pic.png', srcW: 10, srcH: 10, fullFrame: false } });
+    if (notify && done.ok()) await notifyApi([(await done.json()).receipt]);
+    return done;
   };
+  const receiptOf = async (res) => (await res.json()).receipt;
   assert.equal((await aapi2('settings-put', { notifyEmail: 'not-an-email' })).status, 400);
   const six = Array.from({ length: 6 }, (_, i) => `person${i + 1}@example.com`).join(', ');
   assert.equal((await aapi2('settings-put', { notifyEmail: Array.from({ length: 21 }, (_, i) => `p${i}@example.com`).join(',') })).status, 400, 'more than 20 rejected');
@@ -181,7 +187,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.ok(tp.html.includes('Hi team,<br>&lt;b&gt;New&lt;/b&gt; for November 15: pic.png'), 'intro filled, escaped, newline kept');
   assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\n'), 'intro in plain text too');
   const pv = await aapi2('notify-test', { email: 'you@example.com', emailSubject: 'Preview {title}', emailIntro: 'unsaved intro' });
-  assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
+  assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo, Another photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
   assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {TITLE} ({TYPE}) for {SUNDAY} {nope}', 'preview did not save; placeholders stored in CAPITALS (unknown ones untouched)');
   assert.equal((await aapi2('settings-get')).body.emailIntro, 'Hi team,\n<b>New</b> for {SUNDAY}: {FILE}');
   await aapi2('settings-put', { emailSubject: '   ', emailIntro: '' });
@@ -193,6 +199,44 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await aapi2('settings-put', { notifyEmail: '' });
   const n1 = emails.length; const r3 = await uploadViaApi('Third'); assert.equal(r3.status(), 200); assert.equal(emails.length, n1, 'no email when blank');
   console.log('✓ email failures never block uploads; blank = no emails');
+
+  // --- ONE email per batch ---
+  assert.equal((await aapi2('settings-put', { notifyEmail: 'me@example.com', emailSubject: '', emailIntro: '' })).status, 200);
+  const rA = await receiptOf(await uploadViaApi('Alpha', { notify: false })), rB = await receiptOf(await uploadViaApi('Beta', { notify: false })), rC = await receiptOf(await uploadViaApi('Gamma', { notify: false }));
+  const nB = emails.length; assert.equal(emails.length, nB, 'uploading alone sends nothing yet');
+  const n1b = await (await notifyApi([rA, rB, rC])).json(); assert.equal(n1b.sent, 3);
+  assert.equal(emails.length, nB + 1, 'three files -> ONE email');
+  const be = emails.at(-1);
+  assert.equal(be.subject, 'New images uploaded: Alpha, Beta, Gamma'); assert.match(be.html, /New images uploaded \(3\)/);
+  assert.ok(/1\. Alpha[\s\S]*2\. Beta[\s\S]*3\. Gamma/.test(be.text) && /\/view/.test(be.text), 'lists all three, in order, with the Download link');
+  assert.equal((await (await notifyApi([rA, rB, rC])).json()).sent, 0); assert.equal(emails.length, nB + 1, 'replaying the same receipts sends nothing');
+  assert.equal((await (await notifyApi(['garbage', 'a.b'])).json()).sent, 0); assert.equal(emails.length, nB + 1, 'forged receipts are ignored');
+  const rD = await receiptOf(await uploadViaApi('Delta', { notify: false }));
+  assert.equal((await (await notifyApi([rA, rD])).json()).sent, 1, 'only the not-yet-announced file is included');
+  assert.equal(emails.length, nB + 2); assert.equal(emails.at(-1).subject, 'New image uploaded: Delta');
+  const rE = await receiptOf(await uploadViaApi('Echo', { notify: false }));
+  await Promise.all([notifyApi([rE]), notifyApi([rE])]); assert.equal(emails.length, nB + 3, 'two simultaneous requests -> still one email');
+  const rF = await receiptOf(await uploadViaApi('Foxtrot', { notify: false }));
+  await aapi2('delete', { id: fake.tables.items.find((i) => i.title === 'Foxtrot').id });
+  assert.equal((await (await notifyApi([rF])).json()).sent, 0); assert.equal(emails.length, nB + 3, 'deleted files are not announced');
+  await aapi2('settings-put', { emailSubject: 'New {COUNT} uploads: {TITLE}' });
+  const rG = await receiptOf(await uploadViaApi('Golf', { notify: false })), rH = await receiptOf(await uploadViaApi('Hotel', { notify: false }));
+  await notifyApi([rG, rH]); assert.equal(emails.at(-1).subject, 'New 2 uploads: Golf, Hotel', '{COUNT} works');
+  await aapi2('settings-put', { emailSubject: '' });
+  console.log('✓ one email per batch; each file announced at most once (replays, races, forged + deleted ignored)');
+  // the real upload page: two files -> one email
+  await aapi2('settings-put', { notifyEmail: 'me@example.com' });
+  const nUi = emails.length, up2 = await ctx.newPage();
+  await up2.goto(B + '/'); await up2.waitForSelector('#drop');
+  await up2.setInputFiles('#pick', [`${FX}/small.png`, `${FX}/exact.png`]); await up2.click('#send');
+  await up2.waitForFunction(() => { const s = [...document.querySelectorAll('.file .small')]; return s.length === 2 && s.every((e) => /Uploaded/.test(e.textContent)); }, null, { timeout: 30000 });
+  for (let i = 0; i < 40 && emails.length === nUi; i++) await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(emails.length, nUi + 1, 'upload page sends ONE email for two files');
+  assert.equal(emails.at(-1).subject, 'New images uploaded: small.png, exact.png');
+  await up2.close();
+  console.log('✓ upload page: 2 files -> 1 email');
+  for (const it of fake.tables.items.filter((i) => i.week_key === d.weekKey && !baseIds.includes(i.id))) await aapi2('delete', { id: it.id });
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
   // --- email alerts via SMTP (Gmail-style): one message, recipients on BCC ---
@@ -237,7 +281,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   // a new upload always lands last, even after an admin moved things around
   assert.equal((await aapi2('move', { id: uploadOrder[0], dir: 'down' })).status, 200);
   assert.deepEqual((await aapi2('items')).body.items.map((i) => i.id), [uploadOrder[1], uploadOrder[0], uploadOrder[2]], 'manual move still works');
-  assert.equal((await uploadViaApi('Late')).status(), 200);
+  assert.equal((await uploadViaApi('Late', { notify: false })).status(), 200);
   const afterLate = (await aapi2('items')).body.items;
   assert.equal(afterLate.at(-1).title, 'Late', 'new upload goes to the end');
   await aapi2('delete', { id: afterLate.at(-1).id });

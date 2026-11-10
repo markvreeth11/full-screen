@@ -74,7 +74,12 @@ module.exports = c.wrap(async (req, res) => {
       const preview = { ...s };
       if (typeof b.emailSubject === 'string') preview.emailSubject = c.oneLine(c.clip(b.emailSubject, 150)) || c.DEFAULTS.emailSubject;
       if (typeof b.emailIntro === 'string') preview.emailIntro = c.clip(b.emailIntro, 1000);
-      const msg = c.buildNotification(preview, req, { week_key: c.currentWeek(s), kind: 'image', title: 'Sample photo', description: 'A sample description', original_name: 'sample.jpg' });
+      // two sample files, so the preview shows how a multi-file email looks
+      const wk = c.currentWeek(s);
+      const msg = c.buildNotification(preview, req, [
+        { week_key: wk, kind: 'image', title: 'Sample photo', description: 'A sample description', original_name: 'sample.jpg' },
+        { week_key: wk, kind: 'image', title: 'Another photo', description: '', original_name: 'another.jpg' },
+      ]);
       const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), ...msg, subject: 'TEST: ' + msg.subject });
       return r.ok ? res.json({ ok: true }) : res.status(502).json({ error: `${r.error}\n${c.emailDiagnostics()}` });
     }

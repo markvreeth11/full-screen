@@ -11,6 +11,7 @@ class Q {
   delete() { this.op = 'delete'; return this; }
   upsert(r) { this.op = 'upsert'; this.row = r; return this; }
   eq(c, v) { this.f.push((r) => r[c] === v); return this; }
+  in(c, vals) { this.f.push((r) => vals.includes(r[c])); return this; }
   lt(c, v) { this.f.push((r) => r[c] < v); return this; }
   order(c, o = {}) { (this.ords = this.ords || []).push([c, o.ascending !== false]); return this; }
   limit(n) { this.lim = n; return this; }
@@ -50,6 +51,10 @@ const storage = {
         names.set(n, { name: n, id: rest.includes('/') ? null : 'x' });
       }
       return { data: [...names.values()].slice(0, o.limit || 100), error: null };
+    },
+    upload: async (p, body, o = {}) => {
+      if (!o.upsert && buckets[b].has(p)) return { data: null, error: { statusCode: '409', message: 'The resource already exists' } };
+      buckets[b].set(p, { data: Buffer.from(body), type: o.contentType }); return { data: { path: p }, error: null };
     },
     remove: async (paths) => { paths.forEach((p) => buckets[b].delete(p)); return { error: null }; },
   }),

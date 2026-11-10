@@ -97,7 +97,7 @@ async function upload(o){
     }
     const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,originalName:o.f.name,...meta});
     const dj=await d.json();if(!d.ok)throw new Error(dj.error||'Could not finish upload');
-    o.bar.style.width='100%';o.prog.hidden=true;o.done=true;o.st.textContent='Uploaded ✓';o.st.className='small ok-text';o.st.style.color='';
+    o.bar.style.width='100%';o.prog.hidden=true;o.done=true;o.receipt=dj.receipt;o.st.textContent='Uploaded ✓';o.st.className='small ok-text';o.st.style.color='';
     return true;
   }catch(e){fail(o,e.message||'upload error');return false}
 }
@@ -105,6 +105,9 @@ $('#send').onclick=async()=>{
   $('#send').disabled=true;let ok=0;
   for(const o of files.filter(o=>!o.done)){if(await upload(o))ok++}
   $('#send').disabled=false;sync();
+  // one alert email for the whole batch (the server never announces a file twice)
+  const receipts=files.filter(o=>o.receipt&&!o.notified).map(o=>(o.notified=true,o.receipt));
+  if(receipts.length)post('/api/upload',{action:'notify',receipts}).catch(()=>{});
   if(ok)$('#done').replaceChildren(h('div',{className:'msg ok'},`Thank you! ${ok} file${ok>1?'s':''} uploaded. You can upload more as needed.`));
 };
 init();

@@ -60,7 +60,9 @@ The alert email has a **Download** button that opens `/view` (the volunteer page
 
 If both are configured, SMTP (A) is used.
 
-You can change the email's **subject** and add an **intro message** in Admin → Settings. Placeholders: `{TITLE}` `{TYPE}` `{FILE}` `{SUNDAY}` `{DESCRIPTION}`. *Send test email* previews unsaved edits.
+**One email per upload session:** when someone uploads several files at once, the upload page sends a single alert listing all of them. Each file is announced at most once.
+
+You can change the email's **subject** and add an **intro message** in Admin → Settings. Placeholders: `{TITLE}` `{TYPE}` `{FILE}` `{SUNDAY}` `{DESCRIPTION}` `{COUNT}`. *Send test email* previews unsaved edits.
 
 ### 4. Volunteer viewer login (optional)
 In **Admin → Settings → Volunteer viewer password**, set a password and save. Volunteers sign in at `/view` to see and download uploads (single files, or everything as a .zip). They can't edit, delete, reorder or change settings, and their login doesn't work on `/admin`. Clear the password to switch the page off — existing volunteer sessions are locked out immediately.

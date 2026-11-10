@@ -54,8 +54,27 @@ module.exports = c.wrap(async (req, res) => {
       sort_order: Math.max(Date.now(), ((last && last[0] && last[0].sort_order) || 0) + 1), version: Date.now(),
     });
     if (error) throw error;
-    await c.notifyUpload(s, req, { week_key: week, kind: t.kind, title: c.clip(b.title, 120), description: c.clip(b.description, 400), original_name: c.clip(b.originalName, 200) });
-    return res.json({ id: t.id });
+    // The alert email is sent once per batch by the 'notify' step below, using this receipt.
+    return res.json({ id: t.id, receipt: c.mkTicket({ id: t.id, rc: 1, exp: Date.now() + 30 * 60e3 }) });
+  }
+
+  // One alert email for everything uploaded in a batch. Each file can be announced at most once: it is
+  // "claimed" by creating <week>/<id>.notified (storage refuses to create an existing file), so replaying
+  // the request, or two browsers sending the same receipts, can never produce a second email.
+  if (b.action === 'notify') {
+    if (!c.parseEmails(s.notifyEmail).length) return res.json({ sent: 0 });
+    const ids = [...new Set((Array.isArray(b.receipts) ? b.receipts : []).slice(0, 50).map(c.readTicket).filter((t) => t && t.rc && t.id).map((t) => t.id))];
+    if (!ids.length) return res.json({ sent: 0 });
+    const { data: rows } = await sb.from('items').select('*').in('id', ids);
+    const fresh = [];
+    for (const row of (rows || []).sort((x, y) => (x.sort_order - y.sort_order) || String(x.created_at).localeCompare(String(y.created_at)))) {
+      const { error } = await sb.storage.from('originals').upload(`${row.week_key}/${row.id}.notified`, Buffer.from('1'), { contentType: 'text/plain', upsert: false });
+      const alreadySent = error && (String(error.statusCode) === '409' || /already exists|duplicate/i.test(error.message || ''));
+      if (!alreadySent) fresh.push(row); // (on any other storage error, better to risk a repeat than miss an alert)
+    }
+    if (!fresh.length) return res.json({ sent: 0 });
+    await c.notifyUploads(s, req, fresh);
+    return res.json({ sent: fresh.length });
   }
   res.status(400).json({ error: 'Bad request' });
 });

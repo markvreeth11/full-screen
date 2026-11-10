@@ -43,7 +43,7 @@
     <input type="text" id="emailSubject" maxlength="150" placeholder="New {TYPE} uploaded: {TITLE}">
     <label for="emailIntro">Message at the top of the email <span class="mute">(optional)</span></label>
     <textarea id="emailIntro" maxlength="1000" rows="3" placeholder="e.g. Hi team, a new upload is ready for Sunday."></textarea>
-    <p class="small mute">You can use <code>{TITLE}</code> <code>{TYPE}</code> <code>{FILE}</code> <code>{SUNDAY}</code> <code>{DESCRIPTION}</code> in both. <b>Send test email</b> previews what you've typed, even before saving.</p>
+    <p class="small mute">You can use <code>{TITLE}</code> <code>{TYPE}</code> <code>{FILE}</code> <code>{SUNDAY}</code> <code>{DESCRIPTION}</code> <code>{COUNT}</code> in both. One email covers everything uploaded in one go, so {TITLE} lists all the titles. <b>Send test email</b> previews what you've typed (with two sample photos), even before saving.</p>
     <label><input type="checkbox" id="uploadsOpen"> Uploads open</label>
     <p class="small mute" id="wk"></p>
     <p class="row"><button id="save">Save settings</button><button class="ghost" id="purge">Delete finished weeks now</button><span id="saved" class="mute"></span></p>
@@ -110,7 +110,7 @@ $('#week').onchange=e=>{week=e.target.value;loadItems()};
 
 async function loadSettings(){
   const s=await api('settings-get');$('#bgp').src=s.bg;
-  for(const k of KEYS)$('#'+k).value=(k==='emailSubject'||k==='emailIntro')?String(s[k]||'').replace(/\{(type|title|file|sunday|description)\}/gi,(m,w)=>'{'+w.toUpperCase()+'}'):s[k];
+  for(const k of KEYS)$('#'+k).value=(k==='emailSubject'||k==='emailIntro')?String(s[k]||'').replace(/\{(type|title|file|sunday|description|count)\}/gi,(m,w)=>'{'+w.toUpperCase()+'}'):s[k];
   $('#uploadsOpen').checked=s.uploadsOpen;
   $('#wk').textContent=`Currently collecting uploads for ${fmt(s.sunday)}.`;
 }
