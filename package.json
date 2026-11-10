@@ -7,6 +7,13 @@
     "dev": "vercel dev",
     "test": "node test/run.js"
   },
-  "engines": { "node": ">=20" },
-  "dependencies": { "@supabase/supabase-js": "^2.45.4" }
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.2"
+  }
 }

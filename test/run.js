@@ -20,6 +20,8 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await ctx.route('**/cdn.jsdelivr.net/**', (r) => r.fulfill({ path: SUPA, contentType: 'text/javascript' }));
+  await ctx.route('**/cdnjs.cloudflare.com/**', (r) => r.fulfill({ path: path.join(__dirname, '..', 'node_modules/jszip/dist/jszip.min.js'), contentType: 'text/javascript' }));
+  await ctx.route('**/fonts.g*apis.com/**', (r) => r.abort());
   const errs = [];
   ctx.on('page', (p) => { p.on('pageerror', (e) => errs.push(e.message)); p.on('dialog', (d) => d.accept()); });
 
@@ -32,8 +34,10 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await up.click('#send');
   await up.waitForFunction(() => {
     const s = [...document.querySelectorAll('.file .small')];
-    return s.length === 3 && s.every((e) => /On the screen/.test(e.textContent));
+    return s.length === 3 && s.every((e) => /Uploaded/.test(e.textContent));
   }, null, { timeout: 30000 });
+  assert.match(await up.textContent('#done'), /Thank you! 3 files uploaded\. You can upload more as needed\./);
+  assert.ok(await up.$('a[href="/admin"]'), 'admin icon on upload page');
   await up.screenshot({ path: `${OUT}/up-done.png` });
   console.log('✓ uploaded 3 files through the real upload page');
 
@@ -60,6 +64,25 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await ad.$$('.item')).length, 3);
   console.log('✓ admin login (bad password rejected) + file list');
   await ad.screenshot({ path: `${OUT}/admin.png` });
+  const html = await ad.content();
+  assert.ok(!/Open screen/.test(html) && !(await ad.$('button:has-text("Hide")')), 'no Open screen / Hide');
+  assert.ok(await ad.$('a[href="/"][aria-label="Upload page"]'), 'upload page icon');
+  // split Download button: arrow reveals Screen-ready / Original
+  await ad.click('.item .caret'); await ad.waitForSelector('.menu:not([hidden]) >> text=Original');
+  assert.ok(await ad.$('.menu:not([hidden]) >> text=Screen-ready')); await ad.keyboard.press('Escape');
+  // plain Download = screen-ready
+  const sd = await (await post('/api/admin', { a: 'download', id: fake.tables.items.find((i) => i.kind === 'image').id }, { cookie: await ctx.cookies().then((c) => c.map((x) => `${x.name}=${x.value}`).join('; ')) })).json();
+  assert.ok(/object\/sign\/media\//.test(sd.url), 'default download is the screen-ready (media) file');
+  // Download all (screen-ready, then originals)
+  for (const [pick, expect, firstExt] of [[null, 3, '.jpg'], ['Originals', 3, '.png']]) {
+    const [dl] = await Promise.all([ad.waitForEvent('download'), pick ? (async () => { await ad.click('#dlall .caret'); await ad.click(`#dlall .menu >> text=${pick}`); })() : ad.click('#dlall .main')]);
+    const zf = path.join(OUT, 'dl.zip'); await dl.saveAs(zf);
+    const names = execFileSync('unzip', ['-Z1', zf]).toString().trim().split('\n');
+    assert.equal(names.length, expect, `zip has ${expect} files: ${names}`);
+    assert.ok(names[0].endsWith(firstExt), `first file is ${firstExt}: ${names[0]}`);
+    console.log(`✓ Download all (${pick || 'screen-ready'}) → ${dl.suggestedFilename()} with ${names.length} files`);
+  }
+  console.log('✓ no Open screen/Hide; Download split button + Download all work');
 
   const before = fake.tables.items.find((i) => i.kind === 'image' && !i.full_frame);
   const v0 = before.version;

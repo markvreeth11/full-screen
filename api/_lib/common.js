@@ -9,7 +9,7 @@ const sb = () => (_sb ||= createClient(process.env.SUPABASE_URL, process.env.SUP
 
 const DEFAULTS = {
   churchName: 'Our Church',
-  timezone: 'America/Chicago',
+  timezone: 'America/New_York',
   rolloverDay: 1,        // week starts Monday…
   rolloverHour: 0,       // …at midnight
   imageDuration: 10,

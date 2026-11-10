@@ -76,6 +76,20 @@ module.exports = c.wrap(async (req, res) => {
       if (error) throw error;
       return res.json({ url: data.signedUrl });
     }
+    case 'download-all': {
+      const wk = /^\d{4}-\d{2}-\d{2}$/.test(b.week || '') ? b.week : c.currentWeek(s);
+      const { data } = await sb.from('items').select('*').eq('week_key', wk).order('sort_order', { ascending: true });
+      const files = [];
+      for (const [n, it] of (data || []).entries()) {
+        const orig = b.which === 'original' && it.original_path;
+        const bucket = orig ? 'originals' : 'media', p = orig ? it.original_path : it.media_path;
+        const base = (it.title || (it.original_name || 'file').replace(/\.[^.]+$/, '')).replace(/[^\w\- ]+/g, '').trim() || 'file';
+        const { data: g, error } = await sb.storage.from(bucket).createSignedUrl(p, 1800);
+        if (error) throw error;
+        files.push({ url: g.signedUrl, name: `${String(n + 1).padStart(2, '0')} ${base}.${p.split('.').pop()}` });
+      }
+      return res.json({ zipName: `Weekly Uploads - ${c.sundayOf(wk)}${b.which === 'original' ? ' (originals)' : ''}.zip`, files });
+    }
     case 'settings-get': return res.json({ ...s, bg: c.bgUrl(s), currentWeek: c.currentWeek(s), sunday: c.sundayOf(c.currentWeek(s)) });
     case 'settings-put': {
       const n = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' ? Math.min(hi, Math.max(lo, +v)) : d);

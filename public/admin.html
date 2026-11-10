@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Weekly Uploads · Admin</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body>
+<title>Weekly Uploads · Admin</title><link rel="icon" href="/favicon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head><body>
 <div class="wrap wide">
 <div id="login" class="card" style="max-width:380px;margin:12vh auto" hidden>
   <img class="logo" src="/logo.png" alt="" style="width:72px;display:block;margin:0 auto 10px"><h1 style="text-align:center;font-size:1.6rem">Admin sign-in</h1>
@@ -7,11 +7,11 @@
   <div id="lerr" class="msg bad" hidden></div><p><button>Sign in</button></p></form>
 </div>
 <div id="app" hidden>
-  <div class="top"><img class="logo" src="/logo.png" alt=""><h1 class="grow">Weekly Uploads <span class="mute" style="font-weight:500">· Admin</span></h1><a class="btn ghost" href="/" target="_blank">Upload page ↗</a><a class="btn ghost" href="/display" target="_blank">Open screen ↗</a><button class="ghost" id="out">Sign out</button></div>
+  <div class="top"><img class="logo" src="/logo.png" alt=""><h1 class="grow">Weekly Uploads <span class="mute" style="font-weight:500">· Admin</span></h1><a class="iconbtn" href="/" title="Upload page" aria-label="Upload page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg></a><button class="ghost" id="out">Sign out</button></div>
   <div class="tabs"><button data-t="files" class="on">Files</button><button data-t="bg">Background</button><button data-t="set">Settings</button></div>
 
   <section id="t-files">
-    <div class="row"><select id="week" style="width:auto"></select><span class="mute grow" id="range"></span></div>
+    <div class="row"><select id="week" style="width:auto"></select><span class="mute grow" id="range"></span><span id="dlall"></span></div>
     <div id="items" class="grid" style="margin-top:16px"></div><p id="empty" class="mute" hidden>Nothing uploaded for this week yet.</p>
   </section>
 
@@ -26,16 +26,13 @@
   <section id="t-set" hidden><div class="card" style="max-width:720px"><h2>Settings</h2>
     <div class="two">
       <div><label>Time zone</label><input type="text" id="timezone" list="tzs"><datalist id="tzs"></datalist></div>
-      <div><label>Seconds per image</label><input type="number" id="imageDuration" min="2" max="600"></div>
       <div><label>New week starts on</label><select id="rolloverDay"></select></div>
       <div><label>…at (hour, 0–23)</label><input type="number" id="rolloverHour" min="0" max="23"></div>
       <div><label>Keep finished weeks for (weeks)</label><input type="number" id="keepPastWeeks" min="0" max="104"></div>
       <div><label>Largest video allowed (MB)</label><input type="number" id="maxVideoMB" min="5"></div>
-      <div><label>Transition</label><select id="transition"><option value="fade">Fade</option><option value="none">None</option></select></div>
       <div><label>Upload code <span class="mute">(blank = no code)</span></label><input type="text" id="uploadCode" autocomplete="off"></div>
     </div>
-    <p class="small mute">"Keep finished weeks" = 0 means everything is deleted automatically the morning after the week ends. The screen always shows only the current week.</p>
-    <label><input type="checkbox" id="showCaptions"> Show titles &amp; descriptions on screen</label>
+    <p class="small mute">"Keep finished weeks" = 0 means everything is deleted automatically the morning after the week ends.</p>
     <label><input type="checkbox" id="uploadsOpen"> Uploads open</label>
     <p class="small mute" id="wk"></p>
     <p class="row"><button id="save">Save settings</button><button class="ghost" id="purge">Delete finished weeks now</button><span id="saved" class="mute"></span></p>
@@ -43,6 +40,7 @@
   </div></section>
 </div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/fit.js"></script>
 <script>
 const $=s=>document.querySelector(s);
@@ -51,7 +49,7 @@ const api=async(a,body={})=>{const r=await fetch('/api/admin',{method:'POST',hea
   if(r.status===401&&a!=='login'){show(false);throw new Error('Signed out')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j};
 const fmt=d=>new Date(d+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const KEYS=['timezone','imageDuration','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','transition','uploadCode'];
+const KEYS=['timezone','rolloverDay','rolloverHour','keepPastWeeks','maxVideoMB','uploadCode'];
 let week=null,timer,SB;
 
 function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok;if(!ok)clearInterval(timer)}
@@ -62,49 +60,74 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
   for(const t of['files','bg','set'])$('#t-'+t).hidden=t!==b.dataset.t});
 
+const caretSvg=()=>{const t=document.createElement('template');t.innerHTML='<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>';return t.content.firstChild};
+const closeMenus=()=>document.querySelectorAll('.menu').forEach(m=>m.hidden=true);
+document.addEventListener('click',closeMenus);document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus()});
+// "Download ▾": the main part runs the default action, the arrow opens the other choices.
+function split(label,main,items,right){
+  const mainB=h('button',{className:'ghost sm'+(items?' main':''),onclick:main},label);
+  if(!items)return mainB;
+  const menu=h('div',{className:'menu'+(right?' right':''),hidden:true,role:'menu'},...items.map(([l,f])=>h('button',{role:'menuitem',onclick:()=>{menu.hidden=true;f()}},l)));
+  const caret=h('button',{className:'ghost sm caret','aria-haspopup':'menu','aria-label':'More download options',onclick:e=>{e.stopPropagation();const open=menu.hidden;closeMenus();menu.hidden=!open}},caretSvg());
+  return h('div',{className:'split'},mainB,caret,menu);
+}
+
 async function loadItems(){
   const d=await api('items',{week});week=d.week;
   const sel=$('#week');sel.replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`${fmt(w.sunday)}${w.key===d.current?' (this Sunday)':''} — ${w.count} file${w.count===1?'':'s'}`)));
-  $('#range').textContent=week===d.current?'Live on the screen':'Finished — no longer shown on the screen';
-  $('#empty').hidden=d.items.length>0;
+  $('#range').textContent=week===d.current?'':'Finished week';
+  $('#empty').hidden=d.items.length>0;$('#dlall').hidden=!d.items.length;
   const box=$('#items');
+  if(document.querySelector('.menu:not([hidden])'))return;
   if(box.contains(document.activeElement)&&document.activeElement.matches('input,textarea'))return;
   box.replaceChildren(...d.items.map((it,i)=>card(it,i,d.items.length,week===d.current)));
 }
 function card(it,i,n,live){
   const th=h('div',{className:'th'},
-    it.kind==='video'?h('video',{src:it.url+'#t=0.5',preload:'metadata',muted:true,style:'width:100%;height:100%;object-fit:cover;display:block'}):h('img',{src:it.url,alt:''}),
-    h('span',{className:'tag'},it.hidden?'Hidden':it.kind==='video'?'Video':'Image'));
+    it.kind==='video'?h('video',{src:it.url+'#t=0.5',preload:'metadata',muted:true}):h('img',{src:it.url,alt:''}),
+    h('span',{className:'tag'},it.kind==='video'?'Video':'Image'));
   const t=h('input',{type:'text',value:it.title,placeholder:'Title',maxLength:120}),d=h('textarea',{value:it.description,placeholder:'Description',maxLength:400,rows:2});
   const save=()=>api('update',{id:it.id,title:t.value,description:d.value}).catch(()=>{});
   t.onchange=d.onchange=save;
   const meta=h('div',{className:'small mute'},[it.originalName,it.srcW?it.srcW+'×'+it.srcH:'',it.fullFrame===false?'fitted on background':it.fullFrame?'exact fit':''].filter(Boolean).join(' · '));
-  const dur=it.kind==='image'?h('input',{type:'number',min:2,max:600,placeholder:'sec',value:it.customDuration||'',title:'Seconds on screen (blank = default)',style:'width:72px'}):null;
-  if(dur)dur.onchange=()=>api('update',{id:it.id,customDuration:dur.value}).catch(()=>{});
   const btn=(l,f,c='ghost sm',dis=false)=>h('button',{className:c,onclick:f,disabled:dis},l);
-  const dl=which=>async()=>{const r=await api('download',{id:it.id,which});location.href=r.url};
+  const dl=which=>async()=>{try{const r=await api('download',{id:it.id,which});location.href=r.url}catch(e){alert(e.message)}};
   async function mv(dir){await api('move',{id:it.id,dir});loadItems()}
   const act=h('div',{className:'actions'},
-    ...(live?[btn('↑',()=>mv('up'),'ghost sm',i===0),btn('↓',()=>mv('down'),'ghost sm',i===n-1),
-      btn(it.hidden?'Show':'Hide',async()=>{await api('update',{id:it.id,hidden:!it.hidden});loadItems()})]:[]),
-    btn(it.kind==='video'?'Download':'Screen-ready',dl('media')),
-    ...(it.hasOriginal?[btn('Original',dl('original'))]:[]),
+    split('Download',dl('media'),it.hasOriginal?[['Screen-ready',dl('media')],['Original',dl('original')]]:null),
+    ...(live?[btn('↑',()=>mv('up'),'ghost sm',i===0),btn('↓',()=>mv('down'),'ghost sm',i===n-1)]:[]),
     btn('Delete',async()=>{if(confirm('Delete this file permanently?')){await api('delete',{id:it.id});loadItems()}},'danger sm'));
-  return h('div',{className:'card item'+(it.hidden?' hid':'')},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{className:'row',style:'margin-top:6px'},meta,...(dur?[h('span',{className:'grow'}),h('span',{className:'small mute'},'Show for'),dur]:[])),act));
+  return h('div',{className:'card item'},th,h('div',{className:'bd'},t,h('div',{style:'height:6px'}),d,h('div',{style:'margin-top:6px'},meta),act));
 }
+
+// Download every file of the selected week as one .zip (built in the browser).
+async function downloadAll(which){
+  const say=t=>$('#dlst').textContent=t;
+  try{
+    say('Preparing…');
+    const r=await api('download-all',{week,which});
+    if(!r.files.length){say('Nothing to download');return}
+    const zip=new JSZip();let n=0;
+    for(const f of r.files){say(`Preparing ${++n} of ${r.files.length}…`);const res=await fetch(f.url);if(!res.ok)throw new Error('could not fetch '+f.name);zip.file(f.name,await res.blob())}
+    const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
+    const a=h('a',{href:URL.createObjectURL(blob),download:r.zipName});document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),60000);say('');
+  }catch(e){say('Download failed: '+e.message)}
+}
+$('#dlall').replaceChildren(split('Download all',()=>downloadAll('media'),[['Screen-ready (.zip)',()=>downloadAll('media')],['Originals (.zip)',()=>downloadAll('original')]],true),h('span',{id:'dlst',className:'small mute',style:'margin-left:10px'}));
 $('#week').onchange=e=>{week=e.target.value;loadItems()};
 
 async function loadSettings(){
   const s=await api('settings-get');$('#bgp').src=s.bg;
   for(const k of KEYS)$('#'+k).value=s[k];
-  $('#showCaptions').checked=s.showCaptions;$('#uploadsOpen').checked=s.uploadsOpen;
-  $('#wk').textContent=`The screen is currently showing uploads for ${fmt(s.sunday)}.`;
+  $('#uploadsOpen').checked=s.uploadsOpen;
+  $('#wk').textContent=`Currently collecting uploads for ${fmt(s.sunday)}.`;
 }
 $('#rolloverDay').replaceChildren(...DAYS.map((d,i)=>h('option',{value:i},d)));
 try{$('#tzs').replaceChildren(...Intl.supportedValuesOf('timeZone').map(z=>h('option',{value:z})))}catch{}
 $('#save').onclick=async()=>{
   const b={};for(const k of KEYS)b[k]=$('#'+k).value;
-  b.showCaptions=$('#showCaptions').checked;b.uploadsOpen=$('#uploadsOpen').checked;
+  b.uploadsOpen=$('#uploadsOpen').checked;
   try{await api('settings-put',b);$('#saved').textContent='Saved ✓';loadSettings();loadItems()}catch(e){$('#saved').textContent=e.message}
   setTimeout(()=>$('#saved').textContent='',3000)};
 $('#purge').onclick=async()=>{if(!confirm('Delete all files from finished weeks now?'))return;

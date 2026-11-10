@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Weekly Uploads</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
+<title>Weekly Uploads</title><link rel="icon" href="/favicon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
 <body><div class="wrap">
+<div class="topbar"><a class="iconbtn" href="/admin" title="Admin" aria-label="Admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></a></div>
 <header class="hero"><img class="logo" src="/logo.png" alt=""><h1>Weekly Uploads</h1><p class="sub" id="week">&nbsp;</p></header>
 <div id="gate" class="card" hidden>
   <h2>Enter the upload code</h2><p class="mute">Ask a church leader if you don't have it.</p>
@@ -75,7 +76,7 @@ function sync(){const n=files.filter(o=>!o.done).length;$('#bar').hidden=!files.
 
 const fail=(o,m)=>{o.st.textContent='Failed: '+m;o.st.style.color='var(--bad)';o.prog.hidden=true;o.rm.hidden=false;o.title.disabled=o.desc.disabled=false};
 async function upload(o){
-  o.rm.hidden=true;o.title.disabled=o.desc.disabled=true;o.st.style.color='';o.prog.hidden=false;o.bar.style.width='15%';
+  o.rm.hidden=true;o.title.disabled=o.desc.disabled=true;o.st.style.color='';o.st.className='small mute';o.prog.hidden=false;o.bar.style.width='15%';
   try{
     let blob=o.f,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
     if(o.kind==='image'){
@@ -96,7 +97,7 @@ async function upload(o){
     }
     const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,originalName:o.f.name,...meta});
     const dj=await d.json();if(!d.ok)throw new Error(dj.error||'Could not finish upload');
-    o.bar.style.width='100%';o.done=true;o.st.textContent='On the screen this week ✓';o.st.style.color='var(--ok)';
+    o.bar.style.width='100%';o.prog.hidden=true;o.done=true;o.st.textContent='Uploaded ✓';o.st.className='small ok-text';o.st.style.color='';
     return true;
   }catch(e){fail(o,e.message||'upload error');return false}
 }
@@ -104,7 +105,7 @@ $('#send').onclick=async()=>{
   $('#send').disabled=true;let ok=0;
   for(const o of files.filter(o=>!o.done)){if(await upload(o))ok++}
   $('#send').disabled=false;sync();
-  if(ok)$('#done').replaceChildren(h('div',{className:'msg'},`Thank you! ${ok} file${ok>1?'s':''} sent. They'll appear on the screen this week.`));
+  if(ok)$('#done').replaceChildren(h('div',{className:'msg ok'},`Thank you! ${ok} file${ok>1?'s':''} uploaded. You can upload more as needed.`));
 };
 init();
 </script></body></html>
