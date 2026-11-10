@@ -85,6 +85,9 @@ button.sm,.btn.sm{padding:9px 15px;font-size:.85rem;border-radius:14px}
 .menu{position:absolute;top:calc(100% + 6px);left:0;min-width:180px;z-index:20;padding:6px;border-radius:16px;background:var(--surface-strong);border:1px solid var(--surface-border);box-shadow:var(--shadow);
   -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}
 .menu.right{left:auto;right:0}
+/* lift the card whose menu is open above the cards that follow it */
+.card:has(.menu:not([hidden])){z-index:40}
+.split>button:focus-visible{outline-offset:-3px}
 .menu button{display:block;width:100%;text-align:left;background:none;color:var(--fg);box-shadow:none;border-radius:11px;padding:10px 12px;font-weight:500;font-size:.92rem}
 .menu button:hover{background:var(--surface);transform:none;filter:none}
 

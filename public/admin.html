@@ -72,8 +72,11 @@ function split(label,main,items,right){
   return h('div',{className:'split'},mainB,caret,menu);
 }
 
+let lastSig='';
 async function loadItems(){
   const d=await api('items',{week});week=d.week;
+  // Only touch the page when something actually changed (otherwise cards flash on every refresh).
+  const sig=JSON.stringify(d);if(sig===lastSig)return;
   const sel=$('#week');sel.replaceChildren(...d.weeks.map(w=>h('option',{value:w.key,selected:w.key===week},`${fmt(w.sunday)}${w.key===d.current?' (this Sunday)':''} — ${w.count} file${w.count===1?'':'s'}`)));
   $('#range').textContent=week===d.current?'':'Finished week';
   $('#empty').hidden=d.items.length>0;$('#dlall').hidden=!d.items.length;
@@ -81,6 +84,7 @@ async function loadItems(){
   if(document.querySelector('.menu:not([hidden])'))return;
   if(box.contains(document.activeElement)&&document.activeElement.matches('input,textarea'))return;
   box.replaceChildren(...d.items.map((it,i)=>card(it,i,d.items.length,week===d.current)));
+  lastSig=sig;
 }
 function card(it,i,n,live){
   const th=h('div',{className:'th'},

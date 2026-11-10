@@ -70,6 +70,22 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   // split Download button: arrow reveals Screen-ready / Original
   await ad.click('.item .caret'); await ad.waitForSelector('.menu:not([hidden]) >> text=Original');
   assert.ok(await ad.$('.menu:not([hidden]) >> text=Screen-ready')); await ad.keyboard.press('Escape');
+  // regression: the menu must sit ON TOP of the card below it (narrow layout stacks the cards)
+  await ad.setViewportSize({ width: 600, height: 900 });
+  await ad.click('.item .caret'); await ad.waitForSelector('.menu:not([hidden])');
+  const onTop = await ad.evaluate(() => {
+    const m = [...document.querySelectorAll('.menu')].find((x) => !x.hidden), r = m.querySelector('button:last-child').getBoundingClientRect();
+    const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!el.closest('.menu') && m.getBoundingClientRect().bottom > document.querySelectorAll('.item')[1].getBoundingClientRect().top;
+  });
+  assert.ok(onTop, 'menu overlaps the next card AND is on top of it');
+  await ad.keyboard.press('Escape'); await ad.setViewportSize({ width: 1280, height: 720 });
+  console.log('✓ Download menu pops over the card below');
+  // regression: an unchanged refresh must not rebuild (= flash) the cards
+  await ad.evaluate(() => { document.querySelector('.item').__keep = 1; });
+  await ad.evaluate(async () => { await loadItems(); await loadItems(); });
+  assert.ok(await ad.evaluate(() => document.querySelector('.item').__keep === 1), 'cards untouched on refresh');
+  console.log('✓ refresh leaves unchanged cards alone (no flashing)');
   // plain Download = screen-ready
   const sd = await (await post('/api/admin', { a: 'download', id: fake.tables.items.find((i) => i.kind === 'image').id }, { cookie: await ctx.cookies().then((c) => c.map((x) => `${x.name}=${x.value}`).join('; ')) })).json();
   assert.ok(/object\/sign\/media\//.test(sd.url), 'default download is the screen-ready (media) file');
