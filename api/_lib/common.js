@@ -101,9 +101,38 @@ const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 const parseEmails = (v) => String(v || '').split(/[,;\s]+/).filter(Boolean);
 const oneLine = (v) => String(v || '').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
 
-async function sendEmail({ to, subject, html, text }) {
+// Sends with SMTP (e.g. a Gmail account) when SMTP_USER + SMTP_PASS are set, otherwise with Resend.
+async function sendEmail(msg) {
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) return sendViaSmtp(msg);
+  return sendViaResend(msg);
+}
+
+async function sendViaSmtp({ to, subject, html, text }) {
+  try {
+    const nodemailer = require('nodemailer');
+    const port = +process.env.SMTP_PORT || 465;
+    const tx = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com', port, secure: port === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 15000,
+    });
+    // One message: To = the sending account itself, everyone else on BCC so addresses stay private.
+    await tx.sendMail({
+      from: process.env.NOTIFY_FROM || `Weekly Uploads <${process.env.SMTP_USER}>`,
+      to: process.env.SMTP_USER, bcc: to, subject, html, text,
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error('smtp error', e.code, e.responseCode, e.message);
+    if (e.code === 'EAUTH' || e.responseCode === 535) return { ok: false, error: 'The email account rejected the login. For Gmail, SMTP_PASS must be an App Password (not your normal password).' };
+    if (e.code === 'ETIMEDOUT' || e.code === 'ESOCKET' || e.code === 'ECONNECTION') return { ok: false, error: 'Could not reach the email server. Check SMTP_HOST / SMTP_PORT.' };
+    return { ok: false, error: e.message };
+  }
+}
+
+async function sendViaResend({ to, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
-  if (!key) return { ok: false, error: 'RESEND_API_KEY is not set in Vercel yet' };
+  if (!key) return { ok: false, error: 'Email is not set up yet. In Vercel add SMTP_USER and SMTP_PASS (Gmail), or RESEND_API_KEY.' };
   const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 6000);
   try {
     const r = await fetch('https://api.resend.com/emails', {

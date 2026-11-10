@@ -42,12 +42,22 @@ Free plan limits: **50 MB per file**, 1 GB storage. Fine for photos; compress lo
 3. Deploy. Add your domain under *Settings → Domains* (HTTPS is automatic).
 
 ### 3. Email alerts (optional)
-Uses [Resend](https://resend.com) (free: 100 emails/day).
-1. Create a Resend account with the email address that should get the alerts → **API Keys → Create API Key**.
-2. Add it in Vercel as `RESEND_API_KEY` and redeploy.
-3. In **Admin → Settings**, type your email under *Email me when a file is uploaded*, click **Send test email**, then **Save settings**.
+Alerts go to up to 20 addresses (**Admin → Settings → Email me when a file is uploaded**, comma-separated). Use **one** of these ways to send:
 
-Up to 20 addresses can be alerted (comma-separated). **Alerting more than one person requires a verified domain:** until you verify your own domain in Resend, alerts can only go to the email address you signed up with. Verify a domain in Resend (Domains → Add Domain → add the DNS records it shows) and set `NOTIFY_FROM` in Vercel, e.g. `Weekly Uploads <alerts@yourchurch.org>`. Recipients can see each other's addresses.
+**A. A Gmail account (no domain needed — easiest for several recipients)**
+1. In the Google account that will send the alerts, turn on **2-Step Verification** (myaccount.google.com → Security).
+2. Open **myaccount.google.com/apppasswords**, create an app password named `Weekly Uploads`, and copy the 16-character code.
+3. In Vercel add `SMTP_USER` (the Gmail address) and `SMTP_PASS` (the app password), then redeploy.
+4. In Admin → Settings enter the addresses, click **Send test email**, then **Save settings**.
+
+Alerts come from that Gmail address; everyone else is on BCC so addresses stay private. Other mail providers work too: also set `SMTP_HOST` (and `SMTP_PORT`, default 465). Some Google Workspace accounts block app passwords — use a regular Gmail account if so.
+
+**B. Resend (needs your own domain for more than one recipient)**
+1. Create an account at [resend.com](https://resend.com) → **API Keys → Create API Key**.
+2. Add it in Vercel as `RESEND_API_KEY` and redeploy.
+3. To alert anyone besides the address you signed up with, verify a domain in Resend (Domains → Add Domain → add the DNS records) and set `NOTIFY_FROM`, e.g. `Weekly Uploads <alerts@yourchurch.org>`.
+
+If both are configured, SMTP (A) is used.
 
 ### 4. Share
 - Bookmark/send `https://your-domain/` to uploaders.

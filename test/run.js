@@ -180,6 +180,33 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   console.log('✓ email failures never block uploads; blank = no emails');
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
+  // --- email alerts via SMTP (Gmail-style): one message, recipients on BCC ---
+  const { SMTPServer } = require('smtp-server');
+  const got = { rcpt: [], raw: '' };
+  const smtp = new SMTPServer({
+    authOptional: false, allowInsecureAuth: true, disabledCommands: ['STARTTLS'],
+    onAuth: (a, sess, cb) => (a.password === 'app-pass' ? cb(null, { user: a.username }) : cb(new Error('Invalid login'))),
+    onRcptTo: (addr, sess, cb) => { got.rcpt.push(addr.address); cb(); },
+    onData: (stream, sess, cb) => { let d = ''; stream.on('data', (c) => (d += c)); stream.on('end', () => { got.raw = d; cb(); }); },
+  });
+  await new Promise((r) => smtp.listen(2525, '127.0.0.1', r));
+  Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: '2525', SMTP_USER: 'church@example.com', SMTP_PASS: 'app-pass' });
+  assert.equal((await aapi2('settings-put', { notifyEmail: six })).status, 200);
+  const resendBefore = emails.length;
+  assert.equal((await uploadViaApi('ViaSmtp')).status(), 200);
+  assert.equal(emails.length, resendBefore, 'Resend not used when SMTP is configured');
+  assert.deepEqual([...got.rcpt].sort(), [...six.split(', '), 'church@example.com'].sort(), 'all six + the sender are SMTP recipients');
+  assert.match(got.raw, /Subject: New image uploaded: ViaSmtp/); assert.match(got.raw, /To: church@example\.com/);
+  assert.ok(!got.raw.includes('person3@example.com'), 'BCC recipients are not visible in the message');
+  console.log('✓ SMTP (Gmail-style): all 6 recipients alerted on BCC, none visible to the others');
+  process.env.SMTP_PASS = 'wrong-password';
+  const bad = await aapi2('notify-test', { email: 'you@example.com' });
+  assert.equal(bad.status, 502); assert.match(bad.body.error, /App Password/);
+  assert.equal((await uploadViaApi('StillWorks')).status(), 200, 'bad email login never blocks an upload');
+  console.log('✓ wrong app password gives a clear message and never blocks uploads');
+  delete process.env.SMTP_USER; delete process.env.SMTP_PASS; await new Promise((r) => smtp.close(r));
+  for (const it of fake.tables.items.filter((i) => ['ViaSmtp', 'StillWorks'].includes(i.title))) await aapi2('delete', { id: it.id });
+
   // --- weekly auto-delete ---
   const old = '2026-11-02';
   fake.tables.items.push({ id: 'old1', week_key: old, kind: 'image', media_path: `${old}/old1.jpg`, original_path: `${old}/old1.png`, hidden: false, version: 1, sort_order: 1 });
