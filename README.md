@@ -4,7 +4,7 @@ Weekly photo/video uploads for the church screen. Static pages + a few serverles
 
 | URL | Who | What |
 |---|---|---|
-| `/` | Volunteers / congregation | Drag & drop photos and videos, optional title + description |
+| `/` | Volunteers / congregation | Drag & drop photos and videos, optional title + **when it should be shown in the presentation** |
 | `/display` | The screen | Fullscreen slideshow of **this week's** uploads — one permanent link |
 | `/admin` | You | See/download every file, edit titles, reorder, hide, delete, change background, settings |
 | `/view` | Volunteers | Read-only: sign in with the viewer password, preview and download this week's uploads |
@@ -62,7 +62,7 @@ If both are configured, SMTP (A) is used.
 
 **One email per upload session:** when someone uploads several files at once, the upload page sends a single alert listing all of them. Each file is announced at most once.
 
-You can change the email's **subject** and **message** in Admin → Settings. Placeholders: `{TITLE}` `{TYPE}` `{FILE}` `{SUNDAY}` `{DESCRIPTION}` `{COUNT}` `{PASSWORD}`. *Send test email* previews unsaved edits.
+You can change the email's **subject** and **message** in Admin → Settings. Placeholders: `{TITLE}` `{TYPE}` `{FILE}` `{SUNDAY}` `{WHEN}` `{COUNT}` `{PASSWORD}`. *Send test email* previews unsaved edits.
 
 ### 4. Volunteer viewer login (optional)
 In **Admin → Settings → Volunteer viewer password**, set a password and save. Volunteers sign in at `/view` to see and download the **screen-ready** version of uploads (single files with **Download**, or everything as a .zip with **Download all**) — never the originals. They can't edit, delete, reorder or change settings, and their login doesn't work on `/admin`. Clear the password to switch the page off — existing volunteer sessions are locked out immediately.

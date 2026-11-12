@@ -44,7 +44,7 @@
     <input type="text" id="emailSubject" maxlength="150" placeholder="New {TYPE} uploaded: {TITLE}">
     <label for="emailIntro">Email message</label>
     <textarea id="emailIntro" maxlength="1000" rows="3" placeholder="New media has been uploaded! To access your downloads use password - {PASSWORD}"></textarea>
-    <p class="small mute">You can use <code>{TITLE}</code> <code>{TYPE}</code> <code>{FILE}</code> <code>{SUNDAY}</code> <code>{DESCRIPTION}</code> <code>{COUNT}</code> <code>{PASSWORD}</code> in either. <code>{PASSWORD}</code> is the volunteer viewer password above. The email shows your message and a Download button. One email covers everything uploaded in one go, so {TITLE} lists all the titles. <b>Send test email</b> previews what you've typed (with two sample photos), even before saving.</p>
+    <p class="small mute">You can use <code>{TITLE}</code> <code>{TYPE}</code> <code>{FILE}</code> <code>{SUNDAY}</code> <code>{WHEN}</code> <code>{COUNT}</code> <code>{PASSWORD}</code> in either. <code>{PASSWORD}</code> is the volunteer viewer password above. The email shows your message and a Download button. One email covers everything uploaded in one go, so {TITLE} lists all the titles. <b>Send test email</b> previews what you've typed (with two sample photos), even before saving.</p>
     <label><input type="checkbox" id="uploadsOpen"> Uploads open</label>
     <p class="small mute" id="wk"></p>
     <p class="row"><button id="save">Save settings</button><button class="ghost" id="purge">Delete finished weeks now</button><span id="saved" class="mute"></span></p>
@@ -90,7 +90,7 @@ function card(it,i,n,live){
   const th=h('div',{className:'th'},
     it.kind==='video'?h('video',{src:it.url+'#t=0.5',preload:'metadata',muted:true}):h('img',{src:it.url,alt:''}),
     h('span',{className:'tag'},it.kind==='video'?'Video':'Image'));
-  const t=h('input',{type:'text',value:it.title,placeholder:'Title',maxLength:120}),d=h('textarea',{value:it.description,placeholder:'Description',maxLength:400,rows:2});
+  const t=h('input',{type:'text',value:it.title,placeholder:'Title',maxLength:120}),d=h('input',{type:'text',value:it.description,placeholder:'When to show in the presentation',maxLength:200,title:'When should this be shown in the presentation?'});
   const save=()=>api('update',{id:it.id,title:t.value,description:d.value}).catch(()=>{});
   t.onchange=d.onchange=save;
   const meta=h('div',{className:'small mute'},[it.originalName,it.srcW?it.srcW+'×'+it.srcH:'',it.fullFrame===false?'fitted on background':it.fullFrame?'exact fit':''].filter(Boolean).join(' · '));
@@ -111,7 +111,7 @@ $('#week').onchange=e=>{week=e.target.value;loadItems()};
 
 async function loadSettings(){
   const s=await api('settings-get');$('#bgp').src=s.bg;
-  for(const k of KEYS)$('#'+k).value=(k==='emailSubject'||k==='emailIntro')?String(s[k]||'').replace(/\{(type|title|file|sunday|description|count|password)\}/gi,(m,w)=>'{'+w.toUpperCase()+'}'):s[k];
+  for(const k of KEYS)$('#'+k).value=(k==='emailSubject'||k==='emailIntro')?String(s[k]||'').replace(/\{(type|title|file|sunday|description|when|count|password)\}/gi,(m,w)=>'{'+w.toUpperCase()+'}'):s[k];
   mails=[];addMails($('#notifyEmail').value);
   $('#uploadsOpen').checked=s.uploadsOpen;
   $('#wk').textContent=`Currently collecting uploads for ${fmt(s.sunday)}.`;

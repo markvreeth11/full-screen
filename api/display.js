@@ -7,7 +7,7 @@ module.exports = c.wrap(async (req, res) => {
   res.json({
     weekKey: week, bg: c.bgUrl(s),
     items: (data || []).map((i) => ({
-      id: i.id, kind: i.kind, title: i.title, description: i.description,
+      id: i.id, kind: i.kind, title: i.title, // (the 'when to show' note is for the presenter, so it is not sent to the screen)
       url: `${c.publicUrl(i.media_path)}?v=${i.version}`, duration: i.custom_duration || null,
     })),
     settings: { imageDuration: s.imageDuration, showCaptions: s.showCaptions, transition: s.transition },

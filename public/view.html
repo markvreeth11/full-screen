@@ -48,7 +48,7 @@ function card(it){
   const meta=[it.originalName,it.srcW?it.srcW+'×'+it.srcH:''].filter(Boolean).join(' · ');
   return h('div',{className:'card item'},th,h('div',{className:'bd'},
     h('h3',{style:'margin:0 0 4px'},it.title||it.originalName||'Untitled'),
-    ...(it.description?[h('p',{style:'margin:0 0 6px'},it.description)]:[]),
+    ...(it.description?[h('p',{style:'margin:0 0 6px'},h('b',{},'When to show: '),it.description)]:[]),
     h('div',{className:'small mute'},meta),
     h('div',{className:'actions'},h('button',{className:'ghost sm',onclick:dl},'Download'))));
 }

@@ -77,7 +77,7 @@ module.exports = c.wrap(async (req, res) => {
       // two sample files, so the preview shows how a multi-file email looks
       const wk = c.currentWeek(s);
       const msg = c.buildNotification(preview, req, [
-        { week_key: wk, kind: 'image', title: 'Sample photo', description: 'A sample description', original_name: 'sample.jpg' },
+        { week_key: wk, kind: 'image', title: 'Sample photo', description: 'After the sermon', original_name: 'sample.jpg' },
         { week_key: wk, kind: 'image', title: 'Another photo', description: '', original_name: 'another.jpg' },
       ]);
       const r = await c.sendEmail({ to: to.slice(0, c.MAX_NOTIFY), ...msg, subject: 'TEST: ' + msg.subject });

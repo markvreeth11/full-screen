@@ -65,10 +65,10 @@ function add(fl){
       pv.onerror=()=>{st.textContent='⚠ This video format may not play on the screen. Please export it as MP4 (H.264) and upload that instead.';st.style.color='var(--bad)'}}
     else pv=h('img',{className:'pv',src:url,alt:''});
     const title=h('input',{type:'text',maxLength:120,placeholder:'Title (optional)'});
-    const desc=h('textarea',{maxLength:400,placeholder:'Short description (optional)'});
+    const desc=h('input',{type:'text',maxLength:200,placeholder:'e.g. During announcements, after the sermon, 10:15 AM…'});
     const bar=h('i'),prog=h('div',{className:'bar',hidden:true},bar);
     const rm=h('button',{className:'ghost sm',type:'button',onclick:()=>{o.row.remove();files=files.filter(x=>x!==o);sync()}},'Remove');
-    const row=h('div',{className:'card file'},pv,h('div',{},h('label',{},'Title'),title,h('label',{},'Description'),desc,prog,st),rm);
+    const row=h('div',{className:'card file'},pv,h('div',{},h('label',{},'Title'),title,h('label',{},'When should this be shown in the presentation?'),desc,prog,st),rm);
     const o={f,kind,title,desc,bar,prog,st,row,rm};files.push(o);$('#list').append(row);
   }sync();
 }

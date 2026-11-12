@@ -20,7 +20,7 @@ async function poll(first){
   try{
     const d=await (await fetch('/api/display',{cache:'no-store'})).json();
     if(state.weekKey&&d.weekKey!==state.weekKey)return location.reload();   // new week → clean start
-    const sig=JSON.stringify(d.items.map(i=>[i.id,i.url,i.title,i.description,i.duration]))+d.bg+JSON.stringify(d.settings);
+    const sig=JSON.stringify(d.items.map(i=>[i.id,i.url,i.title,i.duration]))+d.bg+JSON.stringify(d.settings);
     const changed=sig!==state.sig;state={...d,sig};
     stage.className=d.settings.transition==='none'?'':'fade';
     stage.style.backgroundImage=`url(${d.bg})`;
@@ -29,9 +29,9 @@ async function poll(first){
 }
 function layer(el){el.className='layer';stage.insertBefore(el,cap);return el}
 function setCaption(it){
-  const on=state.settings.showCaptions&&(it.title||it.description);
+  const on=state.settings.showCaptions&&it.title;
   cap.classList.remove('on');
-  if(on)setTimeout(()=>{cap.querySelector('h1').textContent=it.title||'';cap.querySelector('p').textContent=it.description||'';cap.classList.add('on')},400);
+  if(on)setTimeout(()=>{cap.querySelector('h1').textContent=it.title||'';cap.querySelector('p').textContent='';cap.classList.add('on')},400);
 }
 async function next(){
   clearTimeout(timer);

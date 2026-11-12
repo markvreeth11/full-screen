@@ -17,7 +17,7 @@ const DEFAULTS = {
   transition: 'fade',
   uploadCode: '',
   viewerPassword: '',    // password for the read-only volunteer page (/view); blank = page disabled
-  emailSubject: 'New {TYPE} uploaded: {TITLE}', // placeholders: {TYPE} {TITLE} {FILE} {SUNDAY} {DESCRIPTION} {COUNT} {PASSWORD}
+  emailSubject: 'New {TYPE} uploaded: {TITLE}', // placeholders: {TYPE} {TITLE} {FILE} {SUNDAY} {WHEN} {COUNT} {PASSWORD}
   emailIntro: 'New media has been uploaded! To access your downloads use password - {PASSWORD}', // the email message
   notifyEmail: '',       // email address(es) to alert when a file is uploaded (blank = off)
   uploadsOpen: true,
@@ -185,7 +185,7 @@ const siteUrl = (req) => {
   return host ? `${req.headers['x-forwarded-proto'] || 'https'}://${host}` : '';
 };
 // Known placeholders are stored/shown in CAPITALS ({TITLE}); typing {title} also works.
-const PLACEHOLDER_RE = /\{(type|title|file|sunday|description|count|password)\}/gi;
+const PLACEHOLDER_RE = /\{(type|title|file|sunday|description|when|count|password)\}/gi;
 const upperPlaceholders = (str) => String(str || '').replace(PLACEHOLDER_RE, (m, k) => `{${k.toUpperCase()}}`);
 
 // {placeholders} usable in the email subject and intro message. Unknown ones are left as typed.
@@ -201,7 +201,8 @@ function buildNotification(s, req, input) {
   const vars = {
     type: n > 1 ? `${kind}s` : kind, count: String(n), title: items.map(label).join(', '),
     file: items.map((i) => oneLine(i.original_name)).filter(Boolean).join(', '), sunday: when,
-    description: items.map((i) => oneLine(i.description)).filter(Boolean).join(' · '),
+    when: items.map((i) => oneLine(i.description)).filter(Boolean).join(' · '), // the uploader's "when to show" note
+    description: items.map((i) => oneLine(i.description)).filter(Boolean).join(' · '), // old name, still works
     password: s.viewerPassword || '(ask an admin)',
   };
   const subject = oneLine(fill(s.emailSubject || DEFAULTS.emailSubject, vars)).slice(0, 150) || oneLine(fill(DEFAULTS.emailSubject, vars)).slice(0, 150);

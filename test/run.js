@@ -40,7 +40,9 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await up.goto(B + '/'); await up.waitForSelector('#drop');
   await up.setInputFiles('#pick', [`${FX}/small.png`, `${FX}/exact.png`, `${FX}/vid.mp4`]);
   const titles = await up.$$('.file input[type=text]');
-  await titles[0].fill('Youth Night'); await up.fill('.file textarea', 'Fri 7pm');
+  await titles[0].fill('Youth Night'); await titles[1].fill('Fri 7pm');
+  assert.equal(await up.locator('.file textarea').count(), 0, 'no description box any more');
+  assert.ok((await up.textContent('.file')).includes('When should this be shown in the presentation?'), 'new question on the upload page');
   await up.click('#send');
   await up.waitForFunction(() => {
     const s = [...document.querySelectorAll('.file .small')];
@@ -55,6 +57,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   const d = await (await fetch(B + '/api/display')).json();
   assert.equal(d.items.length, 3, 'three items on display');
   assert.equal(d.items[0].title, 'Youth Night');
+  assert.ok(d.items.every((i) => !('description' in i)) && !JSON.stringify(d).includes('Fri 7pm'), "the presenter's 'when to show' note never reaches the on-screen player");
   for (const it of d.items.slice(0, 2)) {
     assert.equal(probe(Buffer.from(await (await fetch(it.url)).arrayBuffer())), '1920,1080', 'processed image is 1920x1080');
   }
@@ -83,6 +86,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await ad.fill('#pw', 'wrong'); await ad.click('#lf button'); await ad.waitForSelector('#lerr:not([hidden])');
   await ad.fill('#pw', 'pw-test'); await ad.click('#lf button'); await ad.waitForSelector('.item');
   assert.equal((await ad.$$('.item')).length, 3);
+  assert.ok(await ad.$('.item input[placeholder="When to show in the presentation"]'), 'admin cards edit the "when to show" note'); assert.equal(await ad.locator('.item textarea').count(), 0);
   console.log('✓ admin login (bad password rejected) + file list');
   await ad.screenshot({ path: `${OUT}/admin.png` });
   const html = await ad.content();
@@ -231,6 +235,14 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await aapi2('settings-get')).body.emailSubject, 'New {TYPE} uploaded: {TITLE}', 'blank subject resets to the (uppercase) default');
   assert.equal((await aapi2('settings-get')).body.emailIntro, 'New media has been uploaded! To access your downloads use password - {PASSWORD}', 'blank message resets to the default message');
   console.log('✓ email subject + intro are editable with placeholders; test previews unsaved edits');
+  // {WHEN} = the uploader's "when to show" note (the old {DESCRIPTION} still works)
+  assert.equal((await aapi2('settings-put', { emailIntro: 'When: {WHEN} / old: {description}' })).status, 200);
+  await uploadViaApi('WhenTest');
+  assert.ok(emails.at(-1).html.includes('When: desc &lt;b&gt;bold&lt;/b&gt; / old: desc &lt;b&gt;bold&lt;/b&gt;'), '{WHEN} and {description} both fill in the note');
+  assert.equal((await aapi2('settings-get')).body.emailIntro, 'When: {WHEN} / old: {DESCRIPTION}');
+  await aapi2('settings-put', { emailIntro: '' });
+  for (const it of fake.tables.items.filter((i) => i.title === 'WhenTest')) await aapi2('delete', { id: it.id });
+  console.log('✓ {WHEN} placeholder');
   for (const it of fake.tables.items.filter((i) => i.title === 'Youth Night' && i.original_name === 'pic.png')) await aapi2('delete', { id: it.id });
   await aapi2('settings-put', { notifyEmail: 'fail@example.com' });
   const r2 = await uploadViaApi('Second'); assert.equal(r2.status(), 200, 'upload succeeds even if the email service rejects the email');
@@ -397,6 +409,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await vp.fill('#pw', 'wrong'); await vp.click('#lf button'); await vp.waitForSelector('#lerr:not([hidden])');
   await vp.fill('#pw', 'volunteer1'); await vp.click('#lf button'); await vp.waitForSelector('.item');
   assert.equal((await vp.$$('.item')).length, 3);
+  assert.ok((await vp.textContent('#items')).includes('When to show: Fri 7pm'), 'volunteer page shows when each item should be shown');
   assert.equal(await vp.locator('#items input, #items textarea, #items button:has-text("Delete"), #items button:has-text("Hide")').count(), 0, 'no editing controls');
   assert.equal(await vp.locator('a[href="/admin"]').count(), 0, 'no link to admin');
   assert.equal(await vp.locator('a[href="/"], a[href="/admin"], .iconbtn').count(), 0, 'no upload button (or any navigation) on the volunteer page');
