@@ -15,6 +15,7 @@
     "nodemailer": "^10.5.0"
   },
   "devDependencies": {
+    "heic-to": "1.6.6",
     "jszip": "^3.10.2",
     "smtp-server": "^3.21.4"
   }

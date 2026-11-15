@@ -13,7 +13,7 @@
   <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose photos or videos">
     <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg><b>Drag &amp; drop images or videos</b><span class="mute">or tap to choose from your device</span>
   </div>
-  <input type="file" id="pick" accept="image/*,video/*" multiple hidden>
+  <input type="file" id="pick" accept="image/*,video/*,.heic,.heif" multiple hidden>
   <div id="list"></div>
   <div class="center" id="bar" hidden><button id="send">Upload</button></div>
   <div id="done"></div>
@@ -54,7 +54,7 @@ addEventListener('dragover',e=>e.preventDefault());addEventListener('drop',e=>e.
 
 function add(fl){
   for(const f of fl){
-    const kind=f.type.startsWith('image/')?'image':f.type.startsWith('video/')?'video':null;
+    const kind=Fit.isImageFile(f)?'image':f.type.startsWith('video/')?'video':null;
     if(!kind){alert(`"${f.name}" isn't a photo or video, so it was skipped.`);continue}
     const max=kind==='video'?INFO.maxVideoMB:INFO.maxImageMB;
     if(f.size>max*1048576){alert(`"${f.name}" is ${Math.round(f.size/1048576)} MB. The limit for ${kind}s is ${max} MB.`);continue}
@@ -63,7 +63,10 @@ function add(fl){
     let pv;
     if(kind==='video'){pv=h('video',{className:'pv',src:url+'#t=0.5',muted:true,preload:'metadata'});
       pv.onerror=()=>{st.textContent='⚠ This video format may not play on the screen. Please export it as MP4 (H.264) and upload that instead.';st.style.color='var(--bad)'}}
-    else pv=h('img',{className:'pv',src:url,alt:''});
+    else{pv=h('img',{className:'pv',src:url,alt:''});
+      // iPhone (HEIC) photos can't be shown by every browser: fall back to a converted preview
+      pv.onerror=()=>{pv.onerror=null;st.textContent='Converting iPhone photo…';
+        Fit.previewBlob(f).then(b=>{pv.src=URL.createObjectURL(b);st.textContent=f.name}).catch(e=>{st.textContent='⚠ '+e.message;st.style.color='var(--bad)'})}}
     const title=h('input',{type:'text',maxLength:120,placeholder:'Title (optional)'});
     const desc=h('input',{type:'text',maxLength:200,placeholder:'e.g. During announcements, after the sermon, 10:15 AM…'});
     const bar=h('i'),prog=h('div',{className:'bar',hidden:true},bar);
@@ -80,7 +83,7 @@ async function upload(o){
   try{
     let blob=o.f,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
     if(o.kind==='image'){
-      o.st.textContent='Preparing image for the screen…';
+      o.st.textContent=Fit.HEIC_EXT.test(o.f.name)?'Converting iPhone photo…':'Preparing image for the screen…';
       BG=BG||await Fit.loadBg(INFO.bg);
       const r=await Fit.fitImage(o.f,BG);blob=r.blob;meta={srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame,outExt:r.ext};
     }
@@ -91,7 +94,7 @@ async function upload(o){
     const bodies=o.kind==='image'?[o.f,blob]:[o.f];
     for(let i=0;i<sj.uploads.length;i++){
       const u=sj.uploads[i];
-      const {error}=await SB.storage.from(u.bucket).uploadToSignedUrl(u.path,u.token,bodies[i],{contentType:bodies[i].type||undefined});
+      const {error}=await SB.storage.from(u.bucket).uploadToSignedUrl(u.path,u.token,bodies[i],{contentType:bodies[i].type||(i===0&&o.kind==='image'&&Fit.HEIC_EXT.test(o.f.name)?'image/heic':undefined)});
       if(error)throw new Error(error.message||'Upload failed');
       o.bar.style.width=(35+(i+1)/sj.uploads.length*55)+'%';
     }

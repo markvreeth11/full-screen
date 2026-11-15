@@ -7,7 +7,45 @@
   const size = (s) => ({ w: s.width || s.naturalWidth, h: s.height || s.naturalHeight });
   const toBlob = (c, type, q) => new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Could not encode image'))), type, q));
 
-  async function toBitmap(blob) {
+  // ---- iPhone photos (HEIC/HEIF) ----
+  // Chrome/Firefox/Edge can't open HEIC (Safari can), so those are converted in the browser by libheif.
+  // The converter (~3 MB) is only downloaded when a HEIC file actually needs it.
+  const HEIC_LIB = 'https://cdn.jsdelivr.net/npm/heic-to@1.6.6/dist/iife/heic-to.js';
+  const HEIC_HELP = "This iPhone photo couldn't be converted. Try sharing it as a JPEG instead, or on the iPhone set Settings → Camera → Formats → Most Compatible.";
+  const HEIC_EXT = /\.(heic|heif)$/i;
+  // Some systems give HEIC files no type at all, so recognise them by extension too.
+  const isImageFile = (f) => /^image\//.test(f.type) || HEIC_EXT.test(f.name || '');
+  async function isHeicBlob(blob) { // sniff the file's "ftyp" header: heic/heix/hevc/mif1… but not AVIF
+    try {
+      const b = new Uint8Array(await blob.slice(0, 40).arrayBuffer());
+      if (String.fromCharCode(...b.slice(4, 8)) !== 'ftyp') return false;
+      const brands = String.fromCharCode(...b.slice(8, 40));
+      return /heic|heix|hevc|hevx|heim|heis|mif1|msf1/.test(brands) && !/avif|avis/.test(brands);
+    } catch (e) { return false; }
+  }
+  let heicLib;
+  function loadHeicLib() {
+    if (g.HeicTo) return Promise.resolve(g.HeicTo);
+    return (heicLib = heicLib || new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = HEIC_LIB;
+      s.onload = () => (g.HeicTo ? res(g.HeicTo) : rej(new Error(HEIC_HELP)));
+      s.onerror = () => { heicLib = null; rej(new Error("Couldn't load the iPhone photo converter. Check your internet connection and try again.")); };
+      document.head.append(s);
+    }));
+  }
+  const heicCache = new WeakMap(); // one conversion per file (preview + upload share it)
+  function heicToPng(blob) {
+    if (!heicCache.has(blob)) {
+      heicCache.set(blob, loadHeicLib().then((HeicTo) => HeicTo({ blob, type: 'image/png' })).catch((e) => {
+        heicCache.delete(blob);
+        throw (e && /load the iPhone/.test(e.message) ? e : new Error(HEIC_HELP));
+      }));
+    }
+    return heicCache.get(blob);
+  }
+
+  async function nativeBitmap(blob) {
     if (g.createImageBitmap) {
       try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch (e) {}
       try { return await createImageBitmap(blob); } catch (e) {}
@@ -18,6 +56,14 @@
       i.onerror = () => rej(new Error("This image format can't be read by your browser. Try a JPG or PNG."));
       i.src = URL.createObjectURL(blob);
     });
+  }
+
+  async function toBitmap(blob) {
+    try { return await nativeBitmap(blob); }
+    catch (e) {
+      if (await isHeicBlob(blob)) return nativeBitmap(await heicToPng(blob)); // browser can't open HEIC: convert it
+      throw e;
+    }
   }
 
   function scaleTo(src, tw, th) {
@@ -68,6 +114,12 @@
     return { blob: await encode(c, ext), ext, fullFrame: false, srcW: w, srcH: h };
   }
 
+  // Small JPEG preview of any image the page might not be able to show itself (e.g. HEIC in Chrome).
+  async function previewBlob(file, max = 480) {
+    const bmp = await toBitmap(file), { w, h } = size(bmp), k = Math.min(1, max / Math.max(w, h));
+    return toBlob(scaleTo(bmp, Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))), 'image/jpeg', 0.85);
+  }
+
   // Background template: cover-fit any image to 1920x1080.
   async function makeBackground(file) {
     const bmp = await toBitmap(file), { w, h } = size(bmp);
@@ -77,5 +129,5 @@
     return toBlob(c, 'image/png');
   }
 
-  g.Fit = { W, H, fitImage, loadBg, makeBackground };
+  g.Fit = { W, H, fitImage, loadBg, makeBackground, isImageFile, previewBlob, HEIC_EXT };
 })(window);

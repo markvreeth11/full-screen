@@ -32,6 +32,9 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await ctx.route('**/cdn.jsdelivr.net/**', (r) => r.fulfill({ path: SUPA, contentType: 'text/javascript' }));
   await ctx.route('**/cdnjs.cloudflare.com/**', (r) => r.fulfill({ path: path.join(__dirname, '..', 'node_modules/jszip/dist/jszip.min.js'), contentType: 'text/javascript' }));
   await ctx.route('**/fonts.g*apis.com/**', (r) => r.abort());
+  // the iPhone-photo (HEIC) converter: served locally, and counted so we can prove it is only downloaded when needed
+  let heicLibRequests = 0;
+  await ctx.route('**/cdn.jsdelivr.net/npm/heic-to@*/**', (r) => { heicLibRequests++; r.fulfill({ path: path.join(__dirname, '..', 'node_modules/heic-to/dist/iife/heic-to.js'), contentType: 'text/javascript' }); });
   const errs = [];
   ctx.on('page', (p) => { p.on('pageerror', (e) => errs.push(e.message)); p.on('dialog', (d) => d.accept()); });
 
@@ -288,6 +291,52 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   await up2.close();
   console.log('✓ upload page: 2 files -> 1 email');
   for (const it of fake.tables.items.filter((i) => i.week_key === d.weekKey && !baseIds.includes(i.id))) await aapi2('delete', { id: it.id });
+
+  // --- iPhone (HEIC) photos: this Chromium cannot open HEIC itself, so this exercises the converter ---
+  if (fs.existsSync(`${FX}/photo.heic`)) {
+    assert.equal(heicLibRequests, 0, 'the 3 MB HEIC converter is NOT downloaded for normal uploads');
+    const photoBuf = fs.readFileSync(`${FX}/photo.heic`);
+    const up3 = await ctx.newPage(); await up3.goto(B + '/'); await up3.waitForSelector('#drop');
+    await up3.setInputFiles('#pick', [{ name: 'IMG_0001.HEIC', mimeType: '', buffer: photoBuf }, { name: 'portrait.heic', mimeType: 'image/heic', buffer: fs.readFileSync(`${FX}/portrait.heic`) }]); // 1st: no type + capital extension (like Windows); 2nd: proper type
+    assert.equal((await up3.$$('.file')).length, 2, 'HEIC files are accepted even with no file type');
+    await up3.waitForFunction(() => { const i = [...document.querySelectorAll('.file img.pv')]; return i.length === 2 && i.every((x) => x.complete && x.naturalWidth > 0); }, null, { timeout: 40000 });
+    console.log('✓ HEIC previews show even though this browser cannot open HEIC');
+    await up3.click('#send');
+    await up3.waitForFunction(() => { const s = [...document.querySelectorAll('.file .small')]; return s.length === 2 && s.every((e) => /Uploaded|⚠|Failed/.test(e.textContent)); }, null, { timeout: 90000 });
+    assert.deepEqual(await up3.locator('.file .small').allTextContents(), ['Uploaded ✓', 'Uploaded ✓'], 'both iPhone photos uploaded');
+    assert.ok(heicLibRequests >= 1, 'converter was downloaded when needed');
+    const px = (buf, pts) => up3.evaluate(async ([b64, pts]) => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+      return pts.map(([a, b]) => [...x.getImageData(a, b, 1, 1).data].slice(0, 3));
+    }, [buf.toString('base64'), pts]);
+    const near = (a, b, t = 45) => a.every((v, i) => Math.abs(v - b[i]) <= t);
+    const BLUE = [30, 60, 230], GREEN = [30, 200, 60], RED = [230, 30, 30], WHITE = [255, 255, 255];
+    const land = fake.tables.items.find((i) => i.original_name === 'IMG_0001.HEIC'), port = fake.tables.items.find((i) => i.original_name === 'portrait.heic');
+    for (const it of [land, port]) {
+      assert.equal(it.kind, 'image'); assert.ok(it.media_path.endsWith('.png'), 'screen-ready file is PNG'); assert.ok(it.original_path.endsWith('.heic'), 'original kept as .heic');
+      assert.equal(it.full_frame, false);
+      const out = fake.buckets.media.get(it.media_path).data; assert.equal(probe(out), '1920,1080', 'fitted to 1920x1080'); assert.ok(out.length > 20000, 'not a blank image');
+    }
+    assert.ok(fake.buckets.originals.get(land.original_path).data.equals(photoBuf), 'the original HEIC is stored untouched');
+    let [l, r, edge] = await px(fake.buckets.media.get(land.media_path).data, [[500, 540], [1400, 540], [100, 540]]);
+    assert.ok(near(l, BLUE) && near(r, GREEN), `landscape: left blue / right green (right way round): ${l} ${r}`); assert.ok(!near(edge, BLUE) && !near(edge, GREEN), 'background template beside it');
+    let [top, mid, bot, side] = await px(fake.buckets.media.get(port.media_path).data, [[960, 20], [960, 540], [960, 1060], [100, 540]]);
+    assert.ok(near(top, WHITE) && near(mid, RED) && near(bot, RED), `portrait: white bar on TOP, red below (right way up): ${top} ${mid} ${bot}`); assert.ok(!near(side, RED), 'portrait sits centred on the background');
+    console.log('✓ iPhone HEIC photos: converted, correct colours + orientation, 1920x1080 PNG, original kept as .heic');
+    // changing the background re-fits from the stored HEIC original (admin page converts it too)
+    const vBefore = land.version;
+    await ad.evaluate(() => rerender(() => {})); assert.ok(land.version > vBefore, 're-fit after a background change worked for HEIC originals');
+    assert.equal(probe(fake.buckets.media.get(land.media_path).data), '1920,1080');
+    console.log('✓ background change re-fits HEIC originals too');
+    // a file that is not really a photo gives a clear message, not a crash
+    await up3.reload(); await up3.waitForSelector('#drop');
+    await up3.setInputFiles('#pick', [{ name: 'broken.heic', mimeType: '', buffer: Buffer.from('this is not a real photo') }]);
+    await up3.waitForFunction(() => /⚠/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 30000 });
+    console.log('✓ broken HEIC → clear message');
+    await up3.close();
+    for (const it of [land, port]) await aapi2('delete', { id: it.id });
+  }
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
   // --- email alerts via SMTP (Gmail-style): one email, everyone in To: ---
