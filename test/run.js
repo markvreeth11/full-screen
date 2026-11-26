@@ -35,6 +35,13 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   // the iPhone-photo (HEIC) converter: served locally, and counted so we can prove it is only downloaded when needed
   let heicLibRequests = 0;
   await ctx.route('**/cdn.jsdelivr.net/npm/heic-to@*/**', (r) => { heicLibRequests++; r.fulfill({ path: path.join(__dirname, '..', 'node_modules/heic-to/dist/iife/heic-to.js'), contentType: 'text/javascript' }); });
+  // the PDF reader (PDF.js + its fonts/cmaps): served locally, counted to prove it is only downloaded for PDFs
+  let pdfLibRequests = 0;
+  await ctx.route('**/cdn.jsdelivr.net/npm/pdfjs-dist@*/**', (r) => {
+    const sub = new URL(r.request().url()).pathname.replace(/^\/npm\/pdfjs-dist@[^/]+\//, ''); if (sub === 'build/pdf.min.js') pdfLibRequests++;
+    const f = path.join(__dirname, '..', 'node_modules/pdfjs-dist', sub);
+    return fs.existsSync(f) ? r.fulfill({ path: f, contentType: sub.endsWith('.js') ? 'text/javascript' : 'application/octet-stream' }) : r.fulfill({ status: 404, body: 'nf' });
+  });
   const errs = [];
   ctx.on('page', (p) => { p.on('pageerror', (e) => errs.push(e.message)); p.on('dialog', (d) => d.accept()); });
 
@@ -227,9 +234,11 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await aapi2('settings-put', { emailSubject: '[Church] {Title} ({type}) for {sunday} {nope}', emailIntro: 'Hi team,\n<b>New</b> for {sunday}: {file}' })).status, 200);
   const nTpl = emails.length; assert.equal((await uploadViaApi('Youth Night')).status(), 200);
   const tp = emails.at(-1); assert.equal(emails.length, nTpl + 1);
-  assert.equal(tp.subject, '[Church] Youth Night (image) for November 15 {nope}', 'subject placeholders filled');
-  assert.ok(tp.html.includes('Hi team,<br>&lt;b&gt;New&lt;/b&gt; for November 15: pic.png'), 'intro filled, escaped, newline kept');
-  assert.ok(tp.text.startsWith('Hi team,\n<b>New</b> for November 15: pic.png\n\nDownload: '), 'message in plain text too');
+  // (dates are computed from the current week, so this test never goes stale)
+  const SUNDAY = new Date(Date.parse(d.weekKey + 'T12:00:00Z') + 6 * 864e5).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  assert.equal(tp.subject, `[Church] Youth Night (image) for ${SUNDAY} {nope}`, 'subject placeholders filled');
+  assert.ok(tp.html.includes(`Hi team,<br>&lt;b&gt;New&lt;/b&gt; for ${SUNDAY}: pic.png`), 'intro filled, escaped, newline kept');
+  assert.ok(tp.text.startsWith(`Hi team,\n<b>New</b> for ${SUNDAY}: pic.png\n\nDownload: `), 'message in plain text too');
   const pv = await aapi2('notify-test', { email: 'you@example.com', emailSubject: 'Preview {title}', emailIntro: 'unsaved intro' });
   assert.equal(pv.status, 200); assert.equal(emails.at(-1).subject, 'TEST: Preview Sample photo, Another photo'); assert.ok(emails.at(-1).html.includes('unsaved intro'), 'test uses unsaved form values');
   assert.equal((await aapi2('settings-get')).body.emailSubject, '[Church] {TITLE} ({TYPE}) for {SUNDAY} {nope}', 'preview did not save; placeholders stored in CAPITALS (unknown ones untouched)');
@@ -337,6 +346,87 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
     await up3.close();
     for (const it of [land, port]) await aapi2('delete', { id: it.id });
   }
+
+  // --- PDFs: every page becomes its own slide ---
+  if (fs.existsSync(`${FX}/deck.pdf`)) {
+    assert.equal(pdfLibRequests, 0, 'the PDF reader is NOT downloaded for normal uploads');
+    assert.equal((await aapi2('settings-put', { notifyEmail: 'me@example.com', emailSubject: '', emailIntro: '' })).status, 200);
+    const idsBefore = new Set(fake.tables.items.map((i) => i.id));
+    const newSlides = () => fake.tables.items.filter((i) => !idsBefore.has(i.id)).sort((a, b) => a.sort_order - b.sort_order);
+    const up4 = await ctx.newPage();
+    const pdfFile = (name) => ({ name, mimeType: 'application/pdf', buffer: fs.readFileSync(`${FX}/${name}`) });
+    const open = async (name) => { await up4.goto(B + '/'); await up4.waitForSelector('#drop'); await up4.setInputFiles('#pick', [pdfFile(name)]); };
+    const uploaded = () => up4.waitForFunction(() => /Uploaded/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 120000 });
+    const px = (buf, pts, area) => up4.evaluate(async ([b64, pts, area]) => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+      const colours = pts.map(([a, b]) => [...x.getImageData(a, b, 1, 1).data].slice(0, 3));
+      let white = 0, total = 0;
+      if (area) { const d = x.getImageData(...area).data; for (let i = 0; i < d.length; i += 4) { total++; if (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235) white++; } }
+      return { colours, whiteFrac: total ? white / total : 0 };
+    }, [buf.toString('base64'), pts, area || null]);
+    const near = (a, b, t = 45) => a.every((v, i) => Math.abs(v - b[i]) <= t);
+    const RED = [230, 30, 30], GREEN = [30, 190, 50], BLUE = [30, 64, 230], YELLOW = [250, 217, 26], WHITE = [255, 255, 255];
+
+    // 1) a 16:9 slide deck: 3 pages -> 3 slides, filling the frame, titled "Deck (n/3)"
+    await open('deck.pdf');
+    await up4.waitForFunction(() => /PDF · 3 pages → 3 slides/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 40000 });
+    await up4.waitForFunction(() => { const i = document.querySelector('.file img.pv'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 20000 });
+    assert.ok(pdfLibRequests >= 1, 'the PDF reader was downloaded when needed');
+    const nMail = emails.length, ti = await up4.$$('.file input[type=text]'); await ti[0].fill('Deck'); await ti[1].fill('After the sermon');
+    await up4.click('#send'); await uploaded();
+    assert.match(await up4.textContent('.file .small'), /Uploaded ✓ \(3 slides\)/); assert.match(await up4.textContent('#done'), /1 file uploaded \(3 slides\)/);
+    const deck = newSlides(); assert.equal(deck.length, 3);
+    assert.deepEqual(deck.map((i) => i.title), ['Deck (1/3)', 'Deck (2/3)', 'Deck (3/3)'], 'one slide per page, in page order');
+    assert.deepEqual(deck.map((i) => i.original_name), ['deck - page 1.pdf', 'deck - page 2.pdf', 'deck - page 3.pdf']);
+    assert.ok(deck.every((i) => i.description === 'After the sermon' && i.kind === 'image' && i.full_frame === true && i.original_path == null), 'filling the frame: no separate original needed');
+    for (const [i, col] of [[0, RED], [1, GREEN], [2, BLUE]]) {
+      const out = fake.buckets.media.get(deck[i].media_path).data; assert.equal(probe(out), '1920,1080'); assert.ok(deck[i].media_path.endsWith('.png'));
+      const r = await px(out, [[20, 20], [1900, 1060]], [480, 440, 960, 250]);
+      assert.ok(near(r.colours[0], col) && near(r.colours[1], col), `page ${i + 1} colour (${r.colours[0]})`); assert.ok(r.whiteFrac > 0.04, `page ${i + 1}: the vector text "PAGE ${i + 1}" is drawn (white fraction ${r.whiteFrac.toFixed(3)})`);
+    }
+    for (let i = 0; i < 100 && emails.length === nMail; i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(emails.length, nMail + 1, 'ONE alert email for the whole PDF'); assert.equal(emails.at(-1).subject, 'New images uploaded: Deck (1/3), Deck (2/3), Deck (3/3)');
+    console.log('✓ PDF (16:9 deck): 3 pages → 3 slides in order, 1920x1080, text rendered, one email');
+
+    // 2) a portrait A4 document, no title: slides sit centred on the background, page images are kept as originals
+    await open('a4.pdf');
+    await up4.waitForFunction(() => /PDF · 2 pages → 2 slides/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 40000 });
+    await up4.click('#send'); await uploaded();
+    const a4 = newSlides().slice(3); assert.equal(a4.length, 2); assert.deepEqual(a4.map((i) => i.title), ['', ''], 'no title typed -> no title (no on-screen caption)');
+    assert.ok(a4.every((i) => i.full_frame === false && i.original_path && i.original_path.endsWith('.png')), 'letterboxed pages keep the page image as their original');
+    const pageImg = fake.buckets.originals.get(a4[0].original_path).data, [pw, ph] = probe(pageImg).split(',').map(Number); assert.ok(ph === 1080 && pw >= 760 && pw <= 766, `page image is ${pw}x${ph} (A4 scaled to fit)`);
+    let r1 = await px(fake.buckets.media.get(a4[0].media_path).data, [[960, 20], [960, 540], [100, 540]]);
+    assert.ok(near(r1.colours[0], WHITE) && near(r1.colours[1], RED), `A4 page 1: white band on top, red below (${r1.colours})`); assert.ok(!near(r1.colours[2], RED), 'background template beside the page');
+    let r2 = await px(fake.buckets.media.get(a4[1].media_path).data, [[960, 540]]); assert.ok(near(r2.colours[0], YELLOW), 'A4 page 2 is yellow');
+    // a new background re-fits these slides too (the 16:9 deck slides need no re-fit)
+    const v0 = a4.map((i) => i.version); await ad.evaluate(() => rerender(() => {}));
+    assert.ok(a4.every((i, n) => i.version > v0[n]), 're-fit after a background change works for letterboxed PDF pages'); assert.equal(probe(fake.buckets.media.get(a4[0].media_path).data), '1920,1080');
+    console.log('✓ PDF (portrait A4): centred on the background, page images kept, re-fit on background change');
+
+    // 3) problem PDFs get a clear message and nothing is uploaded
+    for (const [name, re] of [['locked.pdf', /password-protected/], ['bad.pdf', /couldn't be read/], ['many.pdf', /61 pages\. The limit is 60/]]) {
+      await open(name); await up4.waitForFunction(() => /⚠/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 40000 });
+      assert.match(await up4.textContent('.file .small'), re, name);
+      const n = fake.tables.items.length; await up4.click('#send'); await up4.waitForFunction(() => /Failed/.test(document.querySelector('.file .small').textContent)); assert.equal(fake.tables.items.length, n, `${name}: nothing uploaded`);
+    }
+    console.log('✓ password-protected / corrupt / too-long PDFs → clear messages, nothing uploaded');
+
+    // 4) interrupted part-way: "Upload" again continues from the next page (no duplicates)
+    const nBefore = newSlides().length; let signs = 0;
+    await open('deck.pdf'); await up4.waitForFunction(() => /PDF · 3 pages/.test(document.querySelector('.file .small')?.textContent || ''), null, { timeout: 40000 });
+    await up4.route('**/api/upload', (route, req) => { const b = JSON.parse(req.postData() || '{}'); return b.action === 'sign' && ++signs === 3 ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) }) : route.continue(); });
+    await (await up4.$$('.file input[type=text]'))[0].fill('Resume'); await up4.click('#send');
+    await up4.waitForFunction(() => /Failed/.test(document.querySelector('.file .small').textContent), null, { timeout: 60000 });
+    assert.match(await up4.textContent('.file .small'), /slides 1–2 were uploaded; press Upload to continue from slide 3/); assert.equal(newSlides().length, nBefore + 2);
+    await up4.click('#send'); await uploaded();
+    const res = newSlides().slice(nBefore); assert.deepEqual(res.map((i) => i.title), ['Resume (1/3)', 'Resume (2/3)', 'Resume (3/3)'], 'resumed without duplicating pages');
+    console.log('✓ interrupted PDF upload resumes from the next page');
+    await up4.close();
+    for (const it of newSlides()) await aapi2('delete', { id: it.id });
+    await aapi2('settings-put', { notifyEmail: '' });
+  }
   for (const it of fake.tables.items.filter((i) => ['Second', 'Third', xssTitle].includes(i.title))) await aapi2('delete', { id: it.id });
 
   // --- email alerts via SMTP (Gmail-style): one email, everyone in To: ---
@@ -404,8 +494,9 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   assert.equal((await aapi2('move', { id: uploadOrder[0], dir: 'up' })).status, 200);
   assert.deepEqual((await aapi2('items')).body.items.map((i) => i.id), uploadOrder, 'moved back');
   // items with the SAME sort position are ordered by upload time, and can still be moved
-  const tw = '2026-10-26';
-  for (const [id, at] of [['t2', '2026-10-26T10:00:05Z'], ['t1', '2026-10-26T10:00:01Z']]) {
+  const weeksAgo = (n) => new Date(Date.parse(d.weekKey + 'T00:00:00Z') - n * 7 * 864e5).toISOString().slice(0, 10);
+  const tw = weeksAgo(3);
+  for (const [id, at] of [['t2', `${tw}T10:00:05Z`], ['t1', `${tw}T10:00:01Z`]]) {
     fake.tables.items.push({ id, week_key: tw, kind: 'image', media_path: `${tw}/${id}.jpg`, hidden: false, version: 1, sort_order: 5, created_at: at });
   }
   assert.deepEqual((await aapi2('items', { week: tw })).body.items.map((i) => i.id), ['t1', 't2'], 'ties: earlier upload first');
@@ -476,7 +567,7 @@ const post = (u, b, h = {}) => fetch(B + u, { method: 'POST', headers: { 'conten
   console.log('✓ /view page: sign in, view, preview, Download / Download all, sign out — no editing controls');
 
   // --- weekly auto-delete ---
-  const old = '2026-11-02';
+  const old = weeksAgo(1);
   fake.tables.items.push({ id: 'old1', week_key: old, kind: 'image', media_path: `${old}/old1.jpg`, original_path: `${old}/old1.png`, hidden: false, version: 1, sort_order: 1 });
   fake.buckets.media.set(`${old}/old1.jpg`, { data: Buffer.from('x') });
   fake.buckets.originals.set(`${old}/old1.png`, { data: Buffer.from('x') });

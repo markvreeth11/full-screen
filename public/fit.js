@@ -114,6 +114,75 @@
     return { blob: await encode(c, ext), ext, fullFrame: false, srcW: w, srcH: h };
   }
 
+  // ---- PDFs: every page becomes a slide ----
+  // Pages are drawn by PDF.js (loaded only when a PDF is chosen) straight at the final size, so text and
+  // graphics stay sharp: the largest size that fits 1920x1080. 16:9 pages (slide decks) fill the frame;
+  // other shapes sit centred on the background template, like any other image.
+  const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174';
+  const MAX_PDF_PAGES = 60;
+  const isPdfFile = (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  let pdfLib;
+  function loadPdfLib() {
+    if (g.pdfjsLib) return Promise.resolve(g.pdfjsLib);
+    return (pdfLib = pdfLib || new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = PDFJS + '/build/pdf.min.js';
+      s.onload = () => { g.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + '/build/pdf.worker.min.js'; res(g.pdfjsLib); };
+      s.onerror = () => { pdfLib = null; rej(new Error("Couldn't load the PDF reader. Check your internet connection and try again.")); };
+      document.head.append(s);
+    }));
+  }
+  const pdfCache = new WeakMap(); // one open document per file (preview + upload share it)
+  function openPdf(file) {
+    if (!pdfCache.has(file)) {
+      pdfCache.set(file, (async () => {
+        const lib = await loadPdfLib();
+        let doc;
+        try {
+          doc = await lib.getDocument({
+            data: new Uint8Array(await file.arrayBuffer()),
+            isEvalSupported: false, // PDF.js's own recommended hardening (CVE-2024-4367) for this version
+            cMapUrl: PDFJS + '/cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS + '/standard_fonts/',
+          }).promise;
+        } catch (e) {
+          throw new Error(e && e.name === 'PasswordException'
+            ? 'This PDF is password-protected. Remove the password and try again.'
+            : "This PDF couldn't be read. Try saving or exporting it as a PDF again.");
+        }
+        if (doc.numPages > MAX_PDF_PAGES) throw new Error(`This PDF has ${doc.numPages} pages. The limit is ${MAX_PDF_PAGES} pages, so please split it into smaller PDFs.`);
+        return doc;
+      })().catch((e) => { pdfCache.delete(file); throw e; }));
+    }
+    return pdfCache.get(file);
+  }
+  // Small preview (first page) for the upload list.
+  async function pdfThumb(doc, max = 480) {
+    const page = await doc.getPage(1), v1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(max / v1.width, max / v1.height) });
+    const c = canvas(Math.max(1, Math.round(vp.width)), Math.max(1, Math.round(vp.height))), x = c.getContext('2d');
+    x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: x, viewport: vp }).promise; page.cleanup();
+    return toBlob(c, 'image/jpeg', 0.85);
+  }
+  // One page -> { blob: finished 1920x1080 PNG, page: the page alone (null when it fills the frame), fullFrame, srcW, srcH }
+  async function renderPdfPage(doc, n, bg) {
+    const page = await doc.getPage(n), v1 = page.getViewport({ scale: 1 });
+    const exact = Math.abs(v1.width / v1.height - W / H) < 0.006; // 16:9 slides fill the frame
+    let viewport, pw, ph, transform;
+    if (exact) { viewport = page.getViewport({ scale: W / v1.width }); pw = W; ph = H; transform = [1, 0, 0, H / viewport.height, 0, 0]; }
+    else {
+      viewport = page.getViewport({ scale: Math.min(W / v1.width, H / v1.height) });
+      pw = Math.max(1, Math.min(W, Math.round(viewport.width))); ph = Math.max(1, Math.min(H, Math.round(viewport.height)));
+    }
+    const pc = canvas(pw, ph), px = pc.getContext('2d');
+    px.fillStyle = '#fff'; px.fillRect(0, 0, pw, ph);
+    await page.render({ canvasContext: px, viewport, ...(transform ? { transform } : {}) }).promise; page.cleanup();
+    const out = canvas(W, H), ox = out.getContext('2d');
+    if (exact) ox.drawImage(pc, 0, 0);
+    else { ox.drawImage(bg, 0, 0, W, H); ox.drawImage(pc, Math.floor((W - pw) / 2), Math.floor((H - ph) / 2)); }
+    return { blob: await toBlob(out, 'image/png'), page: exact ? null : await toBlob(pc, 'image/png'), fullFrame: exact, srcW: pw, srcH: ph };
+  }
+
   // Small JPEG preview of any image the page might not be able to show itself (e.g. HEIC in Chrome).
   async function previewBlob(file, max = 480) {
     const bmp = await toBitmap(file), { w, h } = size(bmp), k = Math.min(1, max / Math.max(w, h));
@@ -129,5 +198,5 @@
     return toBlob(c, 'image/png');
   }
 
-  g.Fit = { W, H, fitImage, loadBg, makeBackground, isImageFile, previewBlob, HEIC_EXT };
+  g.Fit = { W, H, fitImage, loadBg, makeBackground, isImageFile, previewBlob, HEIC_EXT, isPdfFile, openPdf, pdfThumb, renderPdfPage, MAX_PDF_PAGES };
 })(window);

@@ -104,6 +104,7 @@ button.sm,.btn.sm{padding:9px 15px;font-size:.85rem;border-radius:14px}
 /* upload rows */
 .file{display:grid;grid-template-columns:168px 1fr auto;gap:18px;align-items:start;margin-top:14px;padding:16px}
 .file .pv{width:168px;aspect-ratio:16/9;border-radius:14px;object-fit:cover;background:#0b2a40;box-shadow:var(--shadow)}
+.file .pv.contain{object-fit:contain;background:color-mix(in srgb,var(--accent) 10%,var(--surface))} /* PDF previews: show the whole page */
 .file label:first-child{margin-top:0}
 .bar{height:7px;border-radius:99px;background:var(--surface-border);overflow:hidden;margin-top:12px}
 .bar i{display:block;height:100%;width:0;border-radius:99px;background:var(--accent);transition:width .35s var(--ease)}

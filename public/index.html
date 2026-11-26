@@ -10,10 +10,10 @@
 </div>
 <div id="closed" class="msg" hidden>Uploads are closed right now. Please check back later.</div>
 <div id="main" hidden>
-  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose photos or videos">
-    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg><b>Drag &amp; drop images or videos</b><span class="mute">or tap to choose from your device</span>
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose photos, PDFs or videos">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></svg><b>Drag &amp; drop images, PDFs or videos</b><span class="mute">or tap to choose from your device</span>
   </div>
-  <input type="file" id="pick" accept="image/*,video/*,.heic,.heif" multiple hidden>
+  <input type="file" id="pick" accept="image/*,video/*,application/pdf,.pdf,.heic,.heif" multiple hidden>
   <div id="list"></div>
   <div class="center" id="bar" hidden><button id="send">Upload</button></div>
   <div id="done"></div>
@@ -54,15 +54,22 @@ addEventListener('dragover',e=>e.preventDefault());addEventListener('drop',e=>e.
 
 function add(fl){
   for(const f of fl){
-    const kind=Fit.isImageFile(f)?'image':f.type.startsWith('video/')?'video':null;
-    if(!kind){alert(`"${f.name}" isn't a photo or video, so it was skipped.`);continue}
+    const kind=Fit.isPdfFile(f)?'pdf':Fit.isImageFile(f)?'image':f.type.startsWith('video/')?'video':null;
+    if(!kind){alert(`"${f.name}" isn't a photo, PDF or video, so it was skipped.`);continue}
     const max=kind==='video'?INFO.maxVideoMB:INFO.maxImageMB;
-    if(f.size>max*1048576){alert(`"${f.name}" is ${Math.round(f.size/1048576)} MB. The limit for ${kind}s is ${max} MB.`);continue}
+    if(f.size>max*1048576){alert(`"${f.name}" is ${Math.round(f.size/1048576)} MB. The limit for ${kind==='pdf'?'PDFs':kind+'s'} is ${max} MB.`);continue}
     const url=URL.createObjectURL(f);
     const st=h('div',{className:'small mute'},f.name);
+    const o={f,kind,receipts:[]};
     let pv;
     if(kind==='video'){pv=h('video',{className:'pv',src:url+'#t=0.5',muted:true,preload:'metadata'});
       pv.onerror=()=>{st.textContent='⚠ This video format may not play on the screen. Please export it as MP4 (H.264) and upload that instead.';st.style.color='var(--bad)'}}
+    else if(kind==='pdf'){
+      // every page of a PDF becomes its own slide
+      pv=h('img',{className:'pv contain',alt:''});st.textContent='Reading PDF…';
+      Fit.openPdf(f).then(async doc=>{const n=doc.numPages;pv.src=URL.createObjectURL(await Fit.pdfThumb(doc));
+        st.textContent=`PDF · ${n} page${n>1?'s':''} → ${n} slide${n>1?'s':''}`+(n>1?' (in page order)':'')})
+        .catch(e=>{o.bad=e.message;st.textContent='⚠ '+e.message;st.style.color='var(--bad)'})}
     else{pv=h('img',{className:'pv',src:url,alt:''});
       // iPhone (HEIC) photos can't be shown by every browser: fall back to a converted preview
       pv.onerror=()=>{pv.onerror=null;st.textContent='Converting iPhone photo…';
@@ -72,46 +79,74 @@ function add(fl){
     const bar=h('i'),prog=h('div',{className:'bar',hidden:true},bar);
     const rm=h('button',{className:'ghost sm',type:'button',onclick:()=>{o.row.remove();files=files.filter(x=>x!==o);sync()}},'Remove');
     const row=h('div',{className:'card file'},pv,h('div',{},h('label',{},'Title'),title,h('label',{},'When should this be shown in the presentation?'),desc,prog,st),rm);
-    const o={f,kind,title,desc,bar,prog,st,row,rm};files.push(o);$('#list').append(row);
+    Object.assign(o,{title,desc,bar,prog,st,row,rm});files.push(o);$('#list').append(row);
   }sync();
 }
 function sync(){const n=files.filter(o=>!o.done).length;$('#bar').hidden=!files.length;$('#send').hidden=!n;$('#send').textContent=n>1?`Upload ${n} files`:'Upload'}
 
 const fail=(o,m)=>{o.st.textContent='Failed: '+m;o.st.style.color='var(--bad)';o.prog.hidden=true;o.rm.hidden=false;o.title.disabled=o.desc.disabled=false};
+
+// Sends ONE finished item (a photo, a video, or one PDF page): ask for upload slots, upload, then confirm.
+// bodies: [original?, finished file] for images, [video] for videos. Returns the receipt used for the alert email.
+async function sendOne(o,{kind,ext,outExt,size,bodies,keepOriginal=true,title,originalName,meta={},progress=()=>{}}){
+  const s=await post('/api/upload',{action:'sign',kind,ext,outExt,size,original:keepOriginal});
+  const sj=await s.json();if(!s.ok)throw new Error(sj.error||'Could not start upload');
+  for(let i=0;i<sj.uploads.length;i++){
+    const u=sj.uploads[i],body=bodies[i];
+    const heic=i===0&&kind==='image'&&keepOriginal&&Fit.HEIC_EXT.test(originalName);
+    const {error}=await SB.storage.from(u.bucket).uploadToSignedUrl(u.path,u.token,body,{contentType:body.type||(heic?'image/heic':undefined)});
+    if(error)throw new Error(error.message||'Upload failed');
+    progress((i+1)/sj.uploads.length);
+  }
+  const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title,description:o.desc.value,originalName,...meta});
+  const dj=await d.json();if(!d.ok)throw new Error(dj.error||'Could not finish upload');
+  return dj.receipt;
+}
+
 async function upload(o){
+  if(o.bad){fail(o,o.bad);return false}
   o.rm.hidden=true;o.title.disabled=o.desc.disabled=true;o.st.style.color='';o.st.className='small mute';o.prog.hidden=false;o.bar.style.width='15%';
   try{
-    let blob=o.f,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
-    if(o.kind==='image'){
-      o.st.textContent=Fit.HEIC_EXT.test(o.f.name)?'Converting iPhone photo…':'Preparing image for the screen…';
+    if(o.kind==='pdf'){
+      const doc=await Fit.openPdf(o.f),n=doc.numPages,base=o.f.name.replace(/\.[^.]+$/,'');
       BG=BG||await Fit.loadBg(INFO.bg);
-      const r=await Fit.fitImage(o.f,BG);blob=r.blob;meta={srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame,outExt:r.ext};
+      // one slide per page, in order; if something fails part-way, "Upload" again carries on from the next page
+      for(let i=(o.pdfDone||0)+1;i<=n;i++){
+        o.st.textContent=n>1?`Slide ${i} of ${n}…`:'Preparing slide…';o.bar.style.width=(10+85*(i-1)/n)+'%';
+        const r=await Fit.renderPdfPage(doc,i,BG);
+        const t=o.title.value&&n>1?`${o.title.value} (${i}/${n})`.slice(0,120):o.title.value;
+        o.receipts.push(await sendOne(o,{kind:'image',ext:'png',outExt:'png',size:(r.page||r.blob).size,keepOriginal:!!r.page,
+          bodies:r.page?[r.page,r.blob]:[r.blob],title:t,originalName:n>1?`${base} - page ${i}.pdf`:o.f.name,
+          meta:{srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame}}));
+        o.pdfDone=i;
+      }
+      o.slides=n;
+    }else{
+      let blob=o.f,meta={},ext=(o.f.name.split('.').pop()||'').toLowerCase();
+      if(o.kind==='image'){
+        o.st.textContent=Fit.HEIC_EXT.test(o.f.name)?'Converting iPhone photo…':'Preparing image for the screen…';
+        BG=BG||await Fit.loadBg(INFO.bg);
+        const r=await Fit.fitImage(o.f,BG);blob=r.blob;meta={srcW:r.srcW,srcH:r.srcH,fullFrame:r.fullFrame};
+        ext=ext||'jpg';var outExt=r.ext;
+      }
+      o.bar.style.width='35%';o.st.textContent='Uploading…';
+      o.receipts.push(await sendOne(o,{kind:o.kind,ext,outExt,size:o.f.size,bodies:o.kind==='image'?[o.f,blob]:[o.f],title:o.title.value,originalName:o.f.name,meta,
+        progress:p=>o.bar.style.width=(35+p*55)+'%'}));
     }
-    o.bar.style.width='35%';o.st.textContent='Uploading…';
-    const s=await post('/api/upload',{action:'sign',kind:o.kind,ext,outExt:meta.outExt,size:o.f.size});
-    const sj=await s.json();if(!s.ok)throw new Error(sj.error||'Could not start upload');
-    // images: [original, fitted]; videos: [video]
-    const bodies=o.kind==='image'?[o.f,blob]:[o.f];
-    for(let i=0;i<sj.uploads.length;i++){
-      const u=sj.uploads[i];
-      const {error}=await SB.storage.from(u.bucket).uploadToSignedUrl(u.path,u.token,bodies[i],{contentType:bodies[i].type||(i===0&&o.kind==='image'&&Fit.HEIC_EXT.test(o.f.name)?'image/heic':undefined)});
-      if(error)throw new Error(error.message||'Upload failed');
-      o.bar.style.width=(35+(i+1)/sj.uploads.length*55)+'%';
-    }
-    const d=await post('/api/upload',{action:'done',ticket:sj.ticket,title:o.title.value,description:o.desc.value,originalName:o.f.name,...meta});
-    const dj=await d.json();if(!d.ok)throw new Error(dj.error||'Could not finish upload');
-    o.bar.style.width='100%';o.prog.hidden=true;o.done=true;o.receipt=dj.receipt;o.st.textContent='Uploaded ✓';o.st.className='small ok-text';o.st.style.color='';
+    o.bar.style.width='100%';o.prog.hidden=true;o.done=true;o.st.textContent='Uploaded ✓'+(o.slides>1?` (${o.slides} slides)`:'');o.st.className='small ok-text';o.st.style.color='';
     return true;
-  }catch(e){fail(o,e.message||'upload error');return false}
+  }catch(e){
+    const partial=o.kind==='pdf'&&o.pdfDone?` (slides 1–${o.pdfDone} were uploaded; press Upload to continue from slide ${o.pdfDone+1})`:'';
+    fail(o,(e.message||'upload error')+partial);return false}
 }
 $('#send').onclick=async()=>{
-  $('#send').disabled=true;let ok=0;
-  for(const o of files.filter(o=>!o.done)){if(await upload(o))ok++}
+  $('#send').disabled=true;let ok=0,slides=0;
+  for(const o of files.filter(o=>!o.done)){if(await upload(o)){ok++;slides+=o.kind==='pdf'?o.slides:1}}
   $('#send').disabled=false;sync();
   // one alert email for the whole batch (the server never announces a file twice)
-  const receipts=files.filter(o=>o.receipt&&!o.notified).map(o=>(o.notified=true,o.receipt));
+  const receipts=files.filter(o=>o.receipts.length&&!o.notified).flatMap(o=>(o.notified=o.done,o.done?o.receipts:[]));
   if(receipts.length)post('/api/upload',{action:'notify',receipts}).catch(()=>{});
-  if(ok)$('#done').replaceChildren(h('div',{className:'msg ok'},`Thank you! ${ok} file${ok>1?'s':''} uploaded. You can upload more as needed.`));
+  if(ok)$('#done').replaceChildren(h('div',{className:'msg ok'},`Thank you! ${ok} file${ok>1?'s':''} uploaded${slides>ok?` (${slides} slides)`:''}. You can upload more as needed.`));
 };
 init();
 </script></body></html>

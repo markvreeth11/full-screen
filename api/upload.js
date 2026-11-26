@@ -20,9 +20,12 @@ module.exports = c.wrap(async (req, res) => {
     const ext = /^[a-z0-9]{1,5}$/.test(String(b.ext || '').toLowerCase()) ? String(b.ext).toLowerCase() : kind === 'video' ? 'mp4' : 'jpg';
     const outExt = b.outExt === 'png' ? 'png' : 'jpg';
     const id = crypto.randomUUID(), week = c.currentWeek(s);
-    const targets = kind === 'image'
+    const keepOriginal = kind === 'image' && b.original !== false; // (a PDF page that fills the frame IS the final image)
+    const targets = keepOriginal
       ? [{ bucket: 'originals', path: `${week}/${id}.${ext}` }, { bucket: 'media', path: `${week}/${id}.${outExt}` }]
-      : [{ bucket: 'media', path: `${week}/${id}.${ext}` }];
+      : kind === 'image'
+        ? [{ bucket: 'media', path: `${week}/${id}.${outExt}` }]
+        : [{ bucket: 'media', path: `${week}/${id}.${ext}` }];
     const uploads = [];
     for (const t of targets) {
       const { data, error } = await sb.storage.from(t.bucket).createSignedUploadUrl(t.path);
@@ -31,7 +34,7 @@ module.exports = c.wrap(async (req, res) => {
     }
     const ticket = c.mkTicket({
       id, kind, exp: Date.now() + 2 * 3600e3,
-      media: targets[kind === 'image' ? 1 : 0].path, original: kind === 'image' ? targets[0].path : null,
+      media: targets[keepOriginal ? 1 : 0].path, original: keepOriginal ? targets[0].path : null,
     });
     return res.json({ ticket, uploads });
   }

@@ -134,8 +134,8 @@ module.exports = c.wrap(async (req, res) => {
     }
     // Re-fit this week's already-uploaded images onto the new background.
     case 'rerender-list': {
-      const { data } = await sb.from('items').select('id').eq('week_key', c.currentWeek(s)).eq('kind', 'image').eq('full_frame', false);
-      return res.json({ ids: (data || []).map((r) => r.id) });
+      const { data } = await sb.from('items').select('id,original_path').eq('week_key', c.currentWeek(s)).eq('kind', 'image').eq('full_frame', false);
+      return res.json({ ids: (data || []).filter((r) => r.original_path).map((r) => r.id) });
     }
     case 'rerender-start': {
       const it = await one(b.id); if (!it || !it.original_path) return res.status(404).json({ error: 'Not found' });
